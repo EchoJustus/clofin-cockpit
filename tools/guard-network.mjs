@@ -6,57 +6,88 @@
  * publish. That distinction is deliberate. The two checks — `scope-verbatim`
  * and `no-unqualified-audited` — are guarantees this repository makes about
  * what it *says*. This guard is about what the built page can *do*, and the
- * honest way to enforce "the site cannot reach anywhere else" is to be unable
- * to produce a site that does, rather than to produce one and then report on
- * it.
+ * honest way to enforce a rule of that shape is to be unable to produce a site
+ * that breaks it, rather than to produce one and then report on it.
  *
- * What it refuses:
+ * ## What changed in phase 2, and what deliberately did not
  *
- * - Any `fetch(` outside `js/net.js`. One network seam, not several.
- * - A missing, altered or widened `Content-Security-Policy`. The policy is
- *   what makes the browser enforce the same rule at runtime.
- * - Any subresource — script, stylesheet, image, frame — from another origin.
- *   No CDN, no web font, no analytics beacon, no error reporter.
- * - Any `<form>`, any credential handling, any storage API. This increment
- *   holds no token, so there is nothing to put anywhere, and the absence is
- *   checked rather than asserted.
- * - Any absolute URL to a host outside the small allowlist below.
+ * Phase 1 refused `<form>` and `<input>` outright, because nothing legitimate
+ * needed one and their absence was therefore free. Phase 2's whole purpose is
+ * forms that drive a real API — an address to connect to, a profile to run —
+ * so that refusal is gone. It is the only thing that is gone, and it was
+ * removed because the reason for it expired, not because it became
+ * inconvenient. `docs/ADR/0002` records the reasoning.
  *
- * The allowlist distinguishes two things that a naive scan conflates: an
- * origin the page *contacts by itself*, and an address that merely appears in
- * text. `api.github.com` is the first. `github.com` is the second — it appears
- * in links the reader may click and in the `git clone` line of a deployment
- * card, and a hyperlink a person follows is a navigation they chose, not a
- * request this page made. The Content-Security-Policy is what keeps that
- * distinction true at runtime: `connect-src` names one host, so nothing else
- * can become a request no matter where its text appears.
+ * Everything else got **stricter or wider in scope**, never looser:
+ *
+ * - `fetch` is still confined to one module.
+ * - The `Content-Security-Policy` is no longer a constant here at all: it is
+ *   read from the built `js/origins.js`, which is the same module the runtime
+ *   check uses, and then held to a list of **properties** — no `'unsafe-inline'`,
+ *   no bare `https:` or `http:` scheme source, no `*`, `default-src 'none'`,
+ *   `form-action 'none'`. Widening the rule in `origins.ts` therefore fails the
+ *   build rather than quietly changing what the page may reach.
+ * - Persistence is no longer forbidden outright, because the instance registry
+ *   exists. It is confined instead: `localStorage` may appear in exactly one
+ *   module, and `sessionStorage`, IndexedDB and the cookie API appear nowhere
+ *   at all. "Stores nothing" became "stores one list of addresses, in one
+ *   file", which is a checkable sentence rather than a weaker one.
+ * - Telemetry, off-origin subresources, `eval`, service workers and every
+ *   credential pattern are refused exactly as before.
+ *
+ * ## Hosts in text versus hosts contacted
+ *
+ * The allowlist distinguishes two things a naive scan conflates: an origin the
+ * page *contacts by itself*, and an address that merely appears in text.
+ * `api.github.com` is the first. `github.com` is the second — it appears in
+ * links the reader may click and in the `git clone` line of a deployment card,
+ * and a hyperlink a person follows is a navigation they chose, not a request
+ * this page made. The loopback hosts come from the origin rules themselves, so
+ * the guard's idea of what may appear and the policy's idea of what may be
+ * contacted have one source.
  */
 
 import { readdir, readFile } from "node:fs/promises";
 import { join, posix, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { byAttribute, elements, parse } from "./htmlscan.mjs";
 
-/** The exact policy the page must carry. Byte for byte — a widened one is a changed one. */
-export const REQUIRED_CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; " +
-  "connect-src https://api.github.com; img-src 'self' data:; " +
-  "base-uri 'none'; form-action 'none'";
-
-/** The only origin the page may contact. */
+/** The only origin the page contacts on its own initiative, without being asked. */
 const CONNECT_ORIGIN = "https://api.github.com";
 
 /** The only module allowed to call `fetch`. */
 const NETWORK_MODULE = "js/net.js";
 
-const ALLOWED_HOSTS = new Map([
-  ["api.github.com", "the one origin this page contacts"],
-  ["github.com", "appears in hyperlinks and in generated git commands; never fetched"],
-  [
-    "www.w3.org",
-    "appears only as the SVG namespace identifier in the inline favicon; namespaces are names, not addresses, and default-src 'none' would block a request to it anyway",
-  ],
-]);
+/**
+ * The only module allowed to name a browser storage API.
+ *
+ * One file, so "what does this repository persist?" is answered by reading one
+ * file rather than by trusting a claim.
+ */
+const STORAGE_MODULE = "js/registry.js";
+
+/**
+ * Properties the policy must have, whatever `origins.ts` says.
+ *
+ * This is the half of the check that a contributor editing `origins.ts` cannot
+ * satisfy by editing `origins.ts`. Each entry is a thing that must not be true
+ * of the rendered policy.
+ */
+const POLICY_MUST_NOT = [
+  [/'unsafe-inline'/, "'unsafe-inline' — inline script or style would defeat script-src 'self'"],
+  [/'unsafe-eval'/, "'unsafe-eval'"],
+  [/(^|[;\s])https?:([;\s]|$)/, "a bare http: or https: scheme source, which is every host there is"],
+  [/(^|[;\s])\*([;\s]|$)/, "a bare * source"],
+  [/data:\s*(?=[^;]*script-src)/, "a data: source inside script-src"],
+];
+
+const POLICY_MUST = [
+  [/(^|;\s*)default-src 'none'(;|$)/, "default-src 'none'"],
+  [/(^|;\s*)script-src 'self'(;|$)/, "script-src 'self'"],
+  [/(^|;\s*)form-action 'none'(;|$)/, "form-action 'none'"],
+  [/(^|;\s*)base-uri 'none'(;|$)/, "base-uri 'none'"],
+];
 
 /** APIs whose presence would contradict something this repository claims. */
 const FORBIDDEN_PATTERNS = [
@@ -66,21 +97,27 @@ const FORBIDDEN_PATTERNS = [
   [/\bsendBeacon\s*\(/, "navigator.sendBeacon — telemetry"],
   [/\bimportScripts\s*\(/, "importScripts"],
   [/\bserviceWorker\b/, "service worker registration"],
-  [/\blocalStorage\b/, "localStorage — this repository stores nothing"],
-  [/\bsessionStorage\b/, "sessionStorage — this repository stores nothing"],
-  [/\bindexedDB\b/, "IndexedDB — this repository stores nothing"],
-  [/document\s*\.\s*cookie/, "document.cookie — this repository stores nothing"],
+  [/\bsessionStorage\b/, "sessionStorage — the registry is the only thing this repository stores"],
+  [/\bindexedDB\b/, "IndexedDB — the registry is the only thing this repository stores"],
+  [/\bcookieStore\b/, "the cookie store — the registry is the only thing this repository stores"],
+  [/document\s*\.\s*cookie/, "document.cookie — the registry is the only thing this repository stores"],
   [/\beval\s*\(/, "eval"],
   [/\bnew\s+Function\s*\(/, "new Function"],
   // Case-sensitive and spelled with a `z` on purpose: that is the HTTP header,
   // while this project's prose — including the scope statement's "regulatory
   // authorisation" — spells the ordinary word with an `s`. The pattern catches
   // the header without ever firing on English.
-  [/\bAuthorization\b/, "an Authorization header — no credential is handled in this increment"],
+  [/\bAuthorization\b/, "an Authorization header — no credential of that kind is handled here"],
   [/\bBearer\s+\$?\{?[A-Za-z_]/, "a Bearer token"],
   [/\bpersonal[- ]access[- ]token\b/i, "a personal access token"],
-  [/<input\b/i, "an <input> element — nothing here collects input"],
-  [/<form\b/i, "a <form> element — nothing here submits anything"],
+  // A minted actor id is a credential and is held in memory. A 36-character
+  // UUID appearing in the *built output* would mean one had been written into
+  // a file, which is the one thing that must never happen to them.
+  [
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i,
+    "a UUID — the synthetic actor ids a bootstrap run mints live in memory for a session and " +
+      "must never appear in a built file",
+  ],
 ];
 
 /** Subresource attributes: things the browser loads without being asked twice. */
@@ -123,6 +160,52 @@ export async function guardNetwork(siteDir) {
   const problems = [];
   const files = [];
 
+  // The policy and the host allowlist are read from the built application, so
+  // there is one statement of the rule rather than a copy here to fall behind.
+  let requiredPolicy = null;
+  const allowedHosts = new Map([
+    ["api.github.com", "the one origin this page contacts on its own initiative"],
+    ["github.com", "appears in hyperlinks and in generated git commands; never fetched"],
+    [
+      "www.w3.org",
+      "appears only as the SVG namespace identifier in the inline favicon; namespaces are names, not addresses, and default-src 'none' would block a request to it anyway",
+    ],
+  ]);
+
+  try {
+    const origins = await import(pathToFileURL(join(siteDir, "js", "origins.js")).href);
+    requiredPolicy = origins.contentSecurityPolicy();
+    for (const rule of origins.ORIGIN_RULES) {
+      for (const source of rule.cspSources) {
+        const host = /^https?:\/\/([A-Za-z0-9._-]+)/.exec(source)?.[1];
+        if (host) allowedHosts.set(host.toLowerCase(), `an instance address: ${rule.label}`);
+      }
+    }
+  } catch (error) {
+    problems.push(
+      `${siteDir}/js/origins.js could not be read, so the policy this page must carry is ` +
+        `unknown: ${error.message}`,
+    );
+  }
+
+  if (requiredPolicy !== null) {
+    for (const [pattern, description] of POLICY_MUST_NOT) {
+      if (pattern.test(requiredPolicy)) {
+        problems.push(
+          `src/origins.ts produces a Content-Security-Policy containing ${description}. ` +
+            "The policy may be narrowed but not widened; see docs/ADR/0002.",
+        );
+      }
+    }
+    for (const [pattern, description] of POLICY_MUST) {
+      if (!pattern.test(requiredPolicy)) {
+        problems.push(
+          `src/origins.ts produces a Content-Security-Policy without ${description}.`,
+        );
+      }
+    }
+  }
+
   for await (const path of walk(siteDir)) {
     files.push({
       path,
@@ -147,24 +230,32 @@ export async function guardNetwork(siteDir) {
       );
     }
 
-    // 2. Nothing that contradicts "no telemetry, no storage, no credentials".
+    // 2. One storage seam, and it is the registry.
+    if (/\blocalStorage\b/.test(file.text) && file.name !== STORAGE_MODULE) {
+      problems.push(
+        `${file.name}: names localStorage. The instance registry is the only thing this ` +
+          `repository persists, and ${STORAGE_MODULE} is the only module that may write it.`,
+      );
+    }
+
+    // 3. Nothing that contradicts "no telemetry, no credentials, nothing else stored".
     for (const [pattern, description] of FORBIDDEN_PATTERNS) {
       if (pattern.test(file.text)) problems.push(`${file.name}: contains ${description}.`);
     }
 
-    // 3. No absolute URL to an unexpected host, anywhere.
+    // 4. No absolute URL to an unexpected host, anywhere.
     for (const match of file.text.matchAll(/https?:\/\/([A-Za-z0-9._-]+)/g)) {
       const host = match[1].toLowerCase();
-      if (!ALLOWED_HOSTS.has(host)) {
+      if (!allowedHosts.has(host)) {
         problems.push(
           `${file.name}: refers to ${host}, which is not an allowed host. ` +
-            `Allowed: ${[...ALLOWED_HOSTS.keys()].join(", ")}.`,
+            `Allowed: ${[...allowedHosts.keys()].join(", ")}.`,
         );
       }
     }
   }
 
-  // 4. Every page carries the exact policy, and loads nothing from elsewhere.
+  // 5. Every page carries the exact policy, and loads nothing from elsewhere.
   for (const page of pages) {
     const tree = parse(page.text);
 
@@ -178,12 +269,12 @@ export async function guardNetwork(siteDir) {
       problems.push(
         `${page.name}: carries ${policies.length} Content-Security-Policy meta tags; exactly one is required.`,
       );
-    } else {
+    } else if (requiredPolicy !== null) {
       const policy = (policies[0].attributes["content"] ?? "").replace(/\s+/g, " ").trim();
-      if (policy !== REQUIRED_CSP) {
+      if (policy !== requiredPolicy) {
         problems.push(
-          `${page.name}: the Content-Security-Policy is not the required one.\n` +
-            `      required: ${REQUIRED_CSP}\n` +
+          `${page.name}: the Content-Security-Policy is not the one src/origins.ts produces.\n` +
+            `      required: ${requiredPolicy}\n` +
             `      found:    ${policy}`,
         );
       }
@@ -203,7 +294,7 @@ export async function guardNetwork(siteDir) {
     }
   }
 
-  // 5. Stylesheets pull nothing in either.
+  // 6. Stylesheets pull nothing in either.
   for (const sheet of files.filter((file) => file.name.endsWith(".css"))) {
     if (/@import/.test(sheet.text)) {
       problems.push(`${sheet.name}: uses @import, which loads a second stylesheet.`);

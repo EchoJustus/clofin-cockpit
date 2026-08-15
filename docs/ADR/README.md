@@ -22,6 +22,7 @@ which also amends
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-typescript-on-a-tsc-only-toolchain-without-a-framework.md) | TypeScript on a `tsc`-only toolchain, with no framework and no bundler | Accepted |
+| [0002](0002-the-build-guard-evolves-forms-are-permitted-and-what-still-is-not.md) | The build guard evolves — forms are permitted, and what deliberately still is not | Accepted |
 
 ## Conventions
 
