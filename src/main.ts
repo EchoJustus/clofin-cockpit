@@ -35,17 +35,32 @@
  * a page whose product is what a system is answering *now*.
  */
 
-import { runNext, startRun, verifyManualStep, type Run } from "./bootstrap.js";
+import { actAs, actingKey, clearActing, describeActing } from "./acting.js";
+import { chooseOption, runNext, startRun, verifyManualStep, type Run } from "./bootstrap.js";
 import { forgetCredentials } from "./credentials.js";
 import { el, replaceChildren, require$ } from "./dom.js";
-import { PROVENANCE_MARKER, SCOPE_MARKER, VIEW_ROOT_ID } from "./frame.js";
+import { auditorFor, readEvidence, whyNoAuditor, type EvidenceResult } from "./evidence.js";
+import {
+  ACTING_MARKER,
+  NO_ACTOR_IN_CONTEXT,
+  PROVENANCE_MARKER,
+  SCOPE_MARKER,
+  VIEW_ROOT_ID,
+} from "./frame.js";
 import { connectToInstance, type ConnectionResult } from "./instance.js";
 import { disconnectOrigin, getOwnJson } from "./net.js";
 import { decideInstanceUrl } from "./origins.js";
-import { PROFILE_DIRECTORY, PROFILE_IDS, readProfile, type Profile } from "./profiles.js";
+import {
+  FLOW_IDS,
+  PROFILE_DIRECTORY,
+  PROFILE_IDS,
+  readProfile,
+  type Profile,
+} from "./profiles.js";
 import * as registry from "./registry.js";
 import { fetchReleaseRecords, type ReleaseRecord } from "./releases.js";
 import { SCOPE_STATEMENT } from "./scope.js";
+import { forgetWorkspace, type Subject } from "./workspace.js";
 import {
   errorView,
   loadingView,
@@ -88,6 +103,13 @@ function assertFrameIntact(): void {
   if (!document.querySelector(`[${PROVENANCE_MARKER}]`)) {
     halt("the provenance region is missing from the page");
   }
+  // Phase 3's addition, and it is checked as strictly as the other two. These
+  // screens show payments being refused and approved; an image of one is
+  // misleading unless it carries who was asking, and this region is what makes
+  // that true of every screenshot rather than of the careful ones.
+  if (!document.querySelector(`[${ACTING_MARKER}]`)) {
+    halt("the acting-actor region is missing from the page");
+  }
 }
 
 interface Route {
@@ -115,6 +137,9 @@ const state: {
   profile: Profile | null;
   profileRefusal: string | null;
   run: Run | null;
+  runRefusal: string | null;
+  evidence: EvidenceResult | null;
+  evidenceRefusal: string | null;
 } = {
   records: null,
   releaseFailure: null,
@@ -124,6 +149,9 @@ const state: {
   profile: null,
   profileRefusal: null,
   run: null,
+  runRefusal: null,
+  evidence: null,
+  evidenceRefusal: null,
 };
 
 function navigation(active: Route["name"]): HTMLElement {
@@ -163,6 +191,9 @@ async function openInstance(baseUrl: string, label: string | null): Promise<void
   state.profile = null;
   state.profileRefusal = null;
   state.run = null;
+  state.runRefusal = null;
+  state.evidence = null;
+  state.evidenceRefusal = null;
   window.location.hash = `#/instances/${encodeURIComponent(decision.baseUrl)}`;
   render();
 
@@ -172,9 +203,12 @@ async function openInstance(baseUrl: string, label: string | null): Promise<void
 
   if (result.kind === "refused") {
     // Withdraw what the attempt granted: no permission to contact it again
-    // without a fresh connection, and no credentials held for it.
+    // without a fresh connection, and nothing held for it — credentials, the
+    // acting choice, or anything a run learned.
     disconnectOrigin(decision.origin);
     forgetCredentials(decision.origin);
+    clearActing(decision.origin);
+    forgetWorkspace(decision.origin);
     // The **entry** only goes if this address was not already remembered. An
     // instance the operator has connected before and has since stopped answers
     // exactly like one that was never CloFin at all, and deleting their saved
@@ -190,10 +224,16 @@ async function chooseProfile(profileId: string): Promise<void> {
   state.profile = null;
   state.profileRefusal = null;
   state.run = null;
+  state.runRefusal = null;
+  state.evidence = null;
+  state.evidenceRefusal = null;
   render();
 
-  if (!PROFILE_IDS.includes(profileId)) {
-    state.profileRefusal = `${profileId} is not a profile this build ships.`;
+  // One list, checked once: a document this build does not ship is refused
+  // before it is fetched, so a hand-edited hash cannot make the page request an
+  // arbitrary path from its own deployment.
+  if (![...PROFILE_IDS, ...FLOW_IDS].includes(profileId)) {
+    state.profileRefusal = `${profileId} is not a document this build ships.`;
     render();
     return;
   }
@@ -220,9 +260,17 @@ async function chooseProfile(profileId: string): Promise<void> {
 function beginRun(): void {
   const connection = state.connection;
   if (!connection || connection.kind !== "connected" || !state.profile) return;
-  // Mints the actors and renders the plan. No request is made: the first one is
-  // the operator's next click, which is the whole shape of this runner.
-  state.run = startRun(state.profile, connection.baseUrl, connection.origin);
+  // Prepares the run and renders the plan. No request is made: the first one is
+  // the operator's next click, which is the whole shape of this runner. A flow
+  // that cannot start says why here, before anything is sent.
+  const started = startRun(state.profile, connection.baseUrl, connection.origin);
+  if (started.kind === "refused") {
+    state.run = null;
+    state.runRefusal = started.reason;
+  } else {
+    state.run = started.run;
+    state.runRefusal = null;
+  }
   render();
 }
 
@@ -239,6 +287,46 @@ async function confirmManualStep(): Promise<void> {
   render();
 }
 
+async function takeChoice(optionId: string): Promise<void> {
+  const run = state.run;
+  if (!run) return;
+  state.run = await chooseOption(run, optionId);
+  render();
+}
+
+/**
+ * Switch the acting actor.
+ *
+ * The whole of it: one call, and a re-render. Deliberately nothing else — the
+ * run is not advanced, no step is retried and no request is sent. Switching is
+ * a statement about who you are, and making it also *do* something would be the
+ * quiet auto-advance this interface refuses to have.
+ */
+function switchActor(key: string): void {
+  const connection = state.connection;
+  if (!connection || connection.kind !== "connected") return;
+  actAs(connection.origin, key);
+  render();
+}
+
+async function showEvidence(subject: Subject): Promise<void> {
+  const connection = state.connection;
+  if (!connection || connection.kind !== "connected") return;
+  state.evidence = null;
+  state.evidenceRefusal = null;
+  render();
+
+  const outcome = await readEvidence(
+    subject,
+    connection.baseUrl,
+    connection.origin,
+    state.run?.variables["organisationId"] ?? null,
+  );
+  if (outcome.kind === "refused") state.evidenceRefusal = outcome.reason;
+  else state.evidence = outcome.result;
+  render();
+}
+
 const actions: InstanceActions = {
   connect: (baseUrl, label) => void openInstance(baseUrl, label),
   select: (baseUrl) => void openInstance(baseUrl, null),
@@ -247,7 +335,10 @@ const actions: InstanceActions = {
     if (state.connection?.baseUrl === baseUrl) {
       state.connection = null;
       state.run = null;
+      state.runRefusal = null;
       state.profile = null;
+      state.evidence = null;
+      state.evidenceRefusal = null;
     }
     render();
   },
@@ -255,8 +346,19 @@ const actions: InstanceActions = {
   beginRun: () => beginRun(),
   runNextStep: () => void runNextStep(),
   confirmManualStep: () => void confirmManualStep(),
+  choose: (optionId) => void takeChoice(optionId),
+  actAs: (key) => switchActor(key),
+  showEvidence: (subject) => void showEvidence(subject),
+  closeEvidence: () => {
+    state.evidence = null;
+    state.evidenceRefusal = null;
+    render();
+  },
   restart: () => {
     state.run = null;
+    state.runRefusal = null;
+    state.evidence = null;
+    state.evidenceRefusal = null;
     render();
   },
 };
@@ -299,11 +401,40 @@ function instanceBody(route: Route): HTMLElement {
     state.releaseFailure !== null
       ? "the published releases could not be read, so this commit was not compared with any tag"
       : "the published releases have not finished loading, so this commit has not been compared with any tag yet",
-    PROFILE_IDS,
-    state.profile,
-    state.profileRefusal,
-    state.run,
+    {
+      profiles: PROFILE_IDS,
+      flows: FLOW_IDS,
+      profile: state.profile,
+      profileRefusal: state.profileRefusal,
+      run: state.run,
+      runRefusal: state.runRefusal,
+      actingKey: actingKey(connection.origin),
+      auditorAvailable: auditorFor(connection.origin) !== null,
+      whyNoAuditor: whyNoAuditor(),
+      evidence: state.evidence,
+      evidenceRefusal: state.evidenceRefusal,
+    },
     actions,
+  );
+}
+
+/**
+ * Keep the frame's acting-actor region true.
+ *
+ * Called on every render, from the same function that re-checks the scope
+ * statement. The region names the actor whose id the next request will carry —
+ * so a screenshot of a refusal carries the person it was refused to, and a
+ * screenshot of an approval carries the person who gave it.
+ */
+function renderActing(region: Element): void {
+  const connection = state.connection;
+  const connected = connection !== null && connection.kind === "connected";
+  replaceChildren(
+    region,
+    el("span", { class: "acting__label" }, ["Acting as"]),
+    el("span", { class: connected ? "acting__value" : "acting__value acting__value--none" }, [
+      connected ? describeActing(connection.origin) : NO_ACTOR_IN_CONTEXT,
+    ]),
   );
 }
 
@@ -312,6 +443,7 @@ function render(): void {
 
   const view = require$<HTMLElement>(`#${VIEW_ROOT_ID}`);
   const provenance = require$(`[${PROVENANCE_MARKER}]`);
+  renderActing(require$(`[${ACTING_MARKER}]`));
   const route = currentRoute();
 
   if (route.name === "release" && state.records !== null && state.releaseFailure === null) {

@@ -35,6 +35,27 @@ export const SCOPE_MARKER = "data-scope-statement";
 /** The attribute marking the provenance region — tag, commit and coverage. */
 export const PROVENANCE_MARKER = "data-provenance";
 
+/**
+ * The attribute marking the acting-actor region.
+ *
+ * Emitted at build time like everything else in the frame, and rewritten by
+ * `main.ts` on every render — the same arrangement the provenance region uses,
+ * and for a stronger reason. The cockpit's most quotable screen is a payment
+ * being refused to the person who raised it, and that screenshot is only honest
+ * if it carries **who was asking**. A "you are acting as…" line inside the
+ * scrolling view would be cropped out of exactly the image that most needs it;
+ * in the frame it travels with every one.
+ *
+ * `main.ts` re-checks that this region is still present before and after every
+ * render, alongside the scope statement, and blanks the application if it has
+ * gone. A cockpit that lost track of whose credentials it was sending would be
+ * showing refusals and approvals with no way to tell which was which.
+ */
+export const ACTING_MARKER = "data-acting-actor";
+
+/** What the acting-actor region says before any instance is connected. */
+export const NO_ACTOR_IN_CONTEXT = "No instance connected.";
+
 /** The id of the one element the application is allowed to rewrite. */
 export const VIEW_ROOT_ID = "view";
 
@@ -78,6 +99,10 @@ export function honestyFrameHtml(): string {
     `  <p class="frame__role">${escapeHtml(COCKPIT_ROLE)}</p>`,
     `  <div class="frame__provenance" ${PROVENANCE_MARKER}>`,
     `    <p class="provenance__empty">${escapeHtml(NO_RELEASE_IN_CONTEXT)}</p>`,
+    "  </div>",
+    `  <div class="frame__acting" ${ACTING_MARKER}>`,
+    `    <span class="acting__label">Acting as</span>`,
+    `    <span class="acting__value">${escapeHtml(NO_ACTOR_IN_CONTEXT)}</span>`,
     "  </div>",
     "</header>",
   ].join("\n");

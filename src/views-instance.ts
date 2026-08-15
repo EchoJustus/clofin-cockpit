@@ -14,15 +14,10 @@
  * on the same screen, not behind a link.
  */
 
-import {
-  awaitingOperator,
-  canContinue,
-  runSummary,
-  type Run,
-  type StepOutcome,
-} from "./bootstrap.js";
+import { type Run } from "./bootstrap.js";
 import { CORE_REPO } from "./core-repo.js";
 import { el } from "./dom.js";
+import type { EvidenceResult } from "./evidence.js";
 import {
   formatTagMatch,
   matchTag,
@@ -35,18 +30,38 @@ import { exchangeList } from "./raw-view.js";
 import type { RegistryEntry } from "./registry.js";
 import type { ReleaseRecord } from "./releases.js";
 import { SCOPE_STATEMENT } from "./scope.js";
+import { planView, runView, type RunActions } from "./views-run.js";
 
-/** What the caller must supply for these views to do anything. */
-export interface InstanceActions {
+/**
+ * What the caller must supply for these views to do anything.
+ *
+ * It extends {@link RunActions} rather than repeating it: the run screens and
+ * the instance screen are two views of one session, and a second copy of
+ * `runNextStep` would eventually be wired to a second implementation.
+ */
+export interface InstanceActions extends RunActions {
   readonly connect: (baseUrl: string, label: string) => void;
   readonly forget: (baseUrl: string) => void;
   readonly select: (baseUrl: string) => void;
+  /** Fetch and validate a profile or flow document, and show it before it runs. */
   readonly chooseProfile: (profileId: string) => void;
-  /** Create the run and mint its actors. Performs no step — that is deliberate. */
+  /** Create the run. Performs no step — that is deliberate. */
   readonly beginRun: () => void;
-  readonly runNextStep: () => void;
-  readonly confirmManualStep: () => void;
-  readonly restart: () => void;
+}
+
+/** Everything the connected-instance screen needs to know about the session. */
+export interface SessionView {
+  readonly profiles: readonly string[];
+  readonly flows: readonly string[];
+  readonly profile: Profile | null;
+  readonly profileRefusal: string | null;
+  readonly run: Run | null;
+  readonly runRefusal: string | null;
+  readonly actingKey: string | null;
+  readonly auditorAvailable: boolean;
+  readonly whyNoAuditor: string;
+  readonly evidence: EvidenceResult | null;
+  readonly evidenceRefusal: string | null;
 }
 
 function labelled(label: string, value: string, mono = false): HTMLElement {
@@ -290,57 +305,65 @@ function readinessCard(instance: ConnectedInstance): HTMLElement {
   ]);
 }
 
+function documentButtons(
+  ids: readonly string[],
+  chosen: Profile | null,
+  actions: InstanceActions,
+): HTMLElement {
+  return el(
+    "div",
+    { class: "profiles" },
+    ids.map((id) => {
+      const button = el(
+        "button",
+        { type: "button", class: chosen?.id === id ? "copy copy--chosen" : "copy copy--inline" },
+        [id],
+      );
+      button.addEventListener("click", () => actions.chooseProfile(id));
+      return button;
+    }),
+  );
+}
+
+/**
+ * The two lists an operator picks from: seed a fresh instance, or operate one.
+ *
+ * They are separate lists because they answer different questions and are done
+ * at different times, but they are the same kind of document read by the same
+ * reader — which the card says, because a reader who thought the flows were
+ * hard-coded would have no reason to go and check what they will do.
+ */
 function profileCard(
   instance: ConnectedInstance,
-  profiles: readonly string[],
-  profile: Profile | null,
-  profileRefusal: string | null,
+  session: SessionView,
   actions: InstanceActions,
 ): HTMLElement {
   return el("div", { class: "card" }, [
-    el("h2", {}, ["Bootstrap a synthetic organisation"]),
+    el("h2", {}, ["Set an instance up, then operate it"]),
     el("p", { class: "card__note" }, [
-      "A seed profile is a versioned JSON document in this repository, fetched from this ",
-      "deployment and shown below before anything runs. Every request it will make is listed ",
-      "in it, one step per request — there is no loop and no expansion, so the steps you read ",
-      "are the requests the instance receives.",
+      "Both lists below are versioned JSON documents in this repository, fetched from this ",
+      "deployment and shown in full before anything runs. Every request a document will make ",
+      "is listed in it, one step per call — there is no loop and no expansion, so the calls ",
+      "you read are the requests the instance receives.",
     ]),
-    el(
-      "div",
-      { class: "profiles" },
-      profiles.map((id) => {
-        const button = el(
-          "button",
-          { type: "button", class: profile?.id === id ? "copy copy--chosen" : "copy copy--inline" },
-          [id],
-        );
-        button.addEventListener("click", () => actions.chooseProfile(id));
-        return button;
-      }),
-    ),
-    profileRefusal ? el("p", { class: "error" }, [profileRefusal]) : null,
-    profile
-      ? el("div", { class: "profile" }, [
-          el("h3", {}, [profile.title]),
-          el("div", { class: "fields" }, [
-            labelled("Profile", `${profile.id} v${profile.version}`, true),
-            labelled("Steps", String(profile.steps.length)),
-            labelled("Actors it will mint", String(profile.actors.length)),
-          ]),
-          el("p", {}, [profile.summary]),
-          el("p", { class: "card__note" }, [`Seed data source: ${profile.source}`]),
-          el(
-            "ol",
-            { class: "steps steps--plan" },
-            profile.steps.map((step) =>
-              el("li", {}, [
-                el("span", { class: "steps__kind" }, [
-                  step.kind === "request" ? `${step.method} ${step.path}` : "run SQL yourself",
-                ]),
-                el("span", { class: "steps__title" }, [step.title]),
-              ]),
-            ),
-          ),
+
+    el("h3", {}, ["Seed a synthetic organisation"]),
+    documentButtons(session.profiles, session.profile, actions),
+
+    el("h3", {}, ["Operate it"]),
+    el("p", { class: "card__note" }, [
+      "In this order: a payment through maker–checker to release, then the simulated scheme ",
+      "played by hand, then reconciliation. Each captures what the next one needs, and a flow ",
+      "run out of order is refused with the reason rather than failing halfway through.",
+    ]),
+    documentButtons(session.flows, session.profile, actions),
+
+    session.profileRefusal ? el("p", { class: "error" }, [session.profileRefusal]) : null,
+    session.runRefusal ? el("p", { class: "error" }, [session.runRefusal]) : null,
+
+    session.profile
+      ? el("div", {}, [
+          planView(session.profile),
           (() => {
             // Begins the run and performs nothing. The first request is the
             // operator's next, separate click: a button labelled "start" that
@@ -362,10 +385,7 @@ export function connectedInstanceView(
   instance: ConnectedInstance,
   records: readonly ReleaseRecord[] | null,
   whyNotChecked: string,
-  profiles: readonly string[],
-  profile: Profile | null,
-  profileRefusal: string | null,
-  run: Run | null,
+  session: SessionView,
   actions: InstanceActions,
 ): HTMLElement {
   return el("section", { class: "panel" }, [
@@ -384,159 +404,16 @@ export function connectedInstanceView(
       exchangeList(instance.exchanges),
     ]),
 
-    run
-      ? runView(run, actions)
-      : profileCard(instance, profiles, profile, profileRefusal, actions),
-  ]);
-}
-
-// ---------------------------------------------------------------------------
-// A run
-// ---------------------------------------------------------------------------
-
-const STATUS_WORDS: Readonly<Record<StepOutcome["status"], string>> = {
-  pending: "not started",
-  running: "running",
-  done: "done",
-  "already-present": "already present",
-  "awaiting-operator": "waiting for you",
-  failed: "failed",
-};
-
-function stepView(outcome: StepOutcome, index: number, actions: InstanceActions): HTMLElement {
-  return el("li", { class: `step step--${outcome.status}` }, [
-    el("div", { class: "step__head" }, [
-      el("span", { class: "step__number" }, [String(index + 1)]),
-      el("span", { class: "step__title" }, [outcome.title]),
-      el("span", { class: "step__status" }, [STATUS_WORDS[outcome.status]]),
-    ]),
-    el("p", { class: "step__summary" }, [outcome.summary]),
-
-    outcome.statements.length > 0
-      ? el("div", { class: "step__sql" }, [
-          el("h4", {}, ["Run these against your own instance"]),
-          el("pre", { class: "raw__pre" }, [el("code", {}, [outcome.statements.join("\n\n")])]),
-          (() => {
-            const copy = el("button", { type: "button", class: "copy copy--inline" }, [
-              "Copy the statements",
-            ]);
-            const text = outcome.statements.join("\n\n");
-            copy.addEventListener("click", () => {
-              void navigator.clipboard
-                .writeText(text)
-                .then(() => {
-                  copy.textContent = "Copied — read it before you run it";
-                })
-                .catch(() => {
-                  copy.textContent = "Copying was blocked; select the text above instead";
-                });
-            });
-            return copy;
-          })(),
-          // Only while this step is the one waiting. A confirmed step keeps its
-          // statements on screen — they are what happened — but offering the
-          // button again would invite a click that either does nothing or asks
-          // about a different step.
-          outcome.status === "awaiting-operator"
-            ? (() => {
-                const confirm = el("button", { type: "button", class: "copy" }, [
-                  "I have run them — ask the instance",
-                ]);
-                confirm.addEventListener("click", () => actions.confirmManualStep());
-                return confirm;
-              })()
-            : null,
-        ])
-      : null,
-
-    outcome.unverifiable.length > 0
-      ? el("div", { class: "step__unverifiable" }, [
-          el("h4", {}, ["What this cannot show"]),
-          el(
-            "ul",
-            {},
-            outcome.unverifiable.map((line) => el("li", {}, [line])),
-          ),
-        ])
-      : null,
-
-    outcome.exchanges.length > 0
-      ? el("div", { class: "step__raw" }, [exchangeList(outcome.exchanges)])
-      : null,
-  ]);
-}
-
-/** The run: every step so far, and what happens next. */
-export function runView(run: Run, actions: InstanceActions): HTMLElement {
-  const attempted = run.outcomes.filter((outcome) => outcome.status !== "pending");
-  const remaining = run.outcomes.length - attempted.length;
-
-  return el("div", { class: "card card--run" }, [
-    el("h2", {}, [`Bootstrap: ${run.profile.title}`]),
-    el("div", { class: "fields" }, [
-      labelled("Profile", `${run.profile.id} v${run.profile.version}`, true),
-      labelled("Instance", run.baseUrl, true),
-      labelled("Progress", runSummary(run)),
-    ]),
-
-    el("p", { class: "card__note" }, [
-      `${run.actors.length} synthetic actor id(s) were minted for this run and are held in this `,
-      "browser tab only. They are sent to this instance and to nothing else, they are in no ",
-      "file this repository ships, and forgetting the instance drops them.",
-    ]),
-    el(
-      "ul",
-      { class: "actors" },
-      run.actors.map((actor) =>
-        el("li", {}, [
-          el("span", { class: "actors__name" }, [actor.displayName]),
-          el("span", { class: "actors__roles" }, [actor.roles.join(", ")]),
-          el("span", { class: "actors__id" }, [actor.actorId]),
-        ]),
-      ),
-    ),
-
-    el(
-      "ol",
-      { class: "steps" },
-      attempted.map((outcome, index) => stepView(outcome, index, actions)),
-    ),
-
-    run.haltedAt && !awaitingOperator(run)
-      ? el("div", { class: "halt" }, [
-          el("h3", {}, [`Halted at ${run.haltedAt.stepId}`]),
-          el("p", {}, [run.haltedAt.reason]),
-          el("p", { class: "card__note" }, [
-            `${remaining} later step(s) were not attempted. The run does not continue past a `,
-            "failure, and nothing here retries on your behalf.",
-          ]),
-        ])
-      : null,
-
-    run.finished
-      ? el("p", { class: "step__summary" }, [
-          "Every step completed. Re-running this profile against this instance would not create ",
-          "anything twice: the chart is read before each account is opened, and the ",
-          "organisation's short name is unique on the instance, which refuses a second one.",
-        ])
-      : null,
-
-    canContinue(run)
-      ? (() => {
-          const next = el("button", { type: "button", class: "copy" }, [
-            attempted.length === 0 ? "Run the first step" : "Run the next step",
-          ]);
-          next.addEventListener("click", () => actions.runNextStep());
-          return next;
-        })()
-      : null,
-
-    (() => {
-      const again = el("button", { type: "button", class: "copy copy--quiet" }, [
-        "Start a new run",
-      ]);
-      again.addEventListener("click", () => actions.restart());
-      return again;
-    })(),
+    session.run
+      ? runView(
+          session.run,
+          session.actingKey,
+          session.auditorAvailable,
+          session.whyNoAuditor,
+          session.evidence,
+          session.evidenceRefusal,
+          actions,
+        )
+      : profileCard(instance, session, actions),
   ]);
 }

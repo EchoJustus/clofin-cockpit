@@ -1,0 +1,294 @@
+{
+  "id": "payment-maker-checker",
+  "role": "flow",
+  "formatVersion": 2,
+  "version": "1.0.0",
+  "title": "A payment, refused to the person who raised it, then approved by somebody else",
+  "summary": "Three payments are raised and submitted by the maker. She then attempts to approve the first one herself and the instance refuses her — a real 403 carrying reason: self-approval, rendered body and all. A checker approves all three, a controller batches them and releases them, and the money appears in 1300-IN-TRANSIT because the ledger moved. The creditor accounts end in 0, 7 and 9 on purpose: those are the digits the simulated scheme's own guidance maps to settling, returning and never answering, which is how the next flow has something to play.",
+  "source": "clofin-core docs/uat/UAT-004-idempotent-submission.md and UAT-005-segregation-of-duties.md, walked through a browser instead of curl. The creditor-account digits are the table in the OpenAPI description of recordSchemeResponse.",
+  "requires": ["organisationId", "accountClientFunds", "accountInTransit", "accountClientPayable"],
+
+  "unverifiable": [
+    "That a retried submission does not pay twice (UAT-004's whole point). CloFin answers a replay with an identical body and an `Idempotent-Replayed: true` header — and that header is not named in this instance's `Access-Control-Expose-Headers`, so a browser will not let this page read it. The cURL beside every step reproduces the request in a terminal, where the header is visible. This flow does not claim what it cannot see.",
+    "That these are the only payments on the instance. Each step shows one instruction; nothing here surveys the organisation.",
+    "The approval bands. CloFin exposes no read for approval_threshold, so what a payment needed is visible only in the approval response's own approvalsRequired — which is shown, and is the instance's figure rather than this page's."
+  ],
+
+  "actors": [
+    { "key": "priya", "displayName": "Priya (maker)", "roles": ["operator"], "limits": [] },
+    { "key": "wei", "displayName": "Wei (checker)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 500000 }] },
+    { "key": "sam", "displayName": "Sam (controller)", "roles": ["controller"], "limits": [] },
+    { "key": "rae", "displayName": "Rae (auditor)", "roles": ["auditor"], "limits": [] }
+  ],
+
+  "thresholds": [],
+
+  "steps": [
+    {
+      "kind": "request",
+      "id": "raise-a",
+      "title": "Priya raises payment A — the one the scheme will settle",
+      "why": "createdBy is not a field this request sends. It is whoever the request authenticated as, which is what makes it usable as the maker side of the refusal four steps below. SGD 500.00 sits under the SGD 1,000.00 band, so one approval will be enough.",
+      "method": "POST",
+      "path": "/payment-instructions",
+      "as": "priya",
+      "idempotent": true,
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "debtorAccountId": "{{accountClientFunds}}",
+        "creditorName": "Pacific Rim Logistics Pte Ltd",
+        "creditorAccount": "SG-SYNTH-88012340",
+        "amount": { "currency": "SGD", "minorUnits": 50000 },
+        "valueDate": "2026-12-01",
+        "purposeCode": "SUPP"
+      },
+      "expect": [201],
+      "capture": { "paymentA": "id", "paymentACreatedBy": "createdBy" },
+      "subjects": [
+        { "variable": "paymentA", "type": "payment-instruction", "label": "Payment A — SG-SYNTH-88012340" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "submit-a",
+      "title": "Priya submits payment A",
+      "why": "A draft moves to pendingApproval on its creator's own submission. Only its creator may submit it — the rule audit finding F-001 added, and one this flow does not attempt to break because UAT-005 §4b already does.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentA}}/submission",
+      "as": "priya",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "raise-b",
+      "title": "Priya raises payment B — the one the scheme will send back",
+      "why": "The creditor account ends in 7. The simulated scheme's published guidance maps 7 and 8 to a return, so the next flow can produce a returned payment without inventing a script.",
+      "method": "POST",
+      "path": "/payment-instructions",
+      "as": "priya",
+      "idempotent": true,
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "debtorAccountId": "{{accountClientFunds}}",
+        "creditorName": "Andaman Shipping Sdn Bhd",
+        "creditorAccount": "SG-SYNTH-88012347",
+        "amount": { "currency": "SGD", "minorUnits": 50000 },
+        "valueDate": "2026-12-01",
+        "purposeCode": "TRAD"
+      },
+      "expect": [201],
+      "capture": { "paymentB": "id" },
+      "subjects": [
+        { "variable": "paymentB", "type": "payment-instruction", "label": "Payment B — SG-SYNTH-88012347" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "submit-b",
+      "title": "Priya submits payment B",
+      "why": "Same transition as A. Grouped with the other maker work so that handing over to the checker happens once, deliberately, rather than six times.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentB}}/submission",
+      "as": "priya",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "raise-c",
+      "title": "Priya raises payment C — the one nobody will ever answer about",
+      "why": "The creditor account ends in 9, which the scheme's guidance maps to no answer at all. This is the payment the whole settlement module exists for: money whose fate is unknown, which must not be treated as failed.",
+      "method": "POST",
+      "path": "/payment-instructions",
+      "as": "priya",
+      "idempotent": true,
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "debtorAccountId": "{{accountClientFunds}}",
+        "creditorName": "Selat Timur Trading Pte Ltd",
+        "creditorAccount": "SG-SYNTH-88012349",
+        "amount": { "currency": "SGD", "minorUnits": 50000 },
+        "valueDate": "2026-12-01",
+        "purposeCode": "SUPP"
+      },
+      "expect": [201],
+      "capture": { "paymentC": "id" },
+      "subjects": [
+        { "variable": "paymentC", "type": "payment-instruction", "label": "Payment C — SG-SYNTH-88012349" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "submit-c",
+      "title": "Priya submits payment C",
+      "why": "The last of the maker's work. After this step the acting actor has to change, and the cockpit will stop and ask you to change it.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentC}}/submission",
+      "as": "priya",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "creator-approves-own",
+      "title": "Priya tries to approve her own payment — and is refused, for real",
+      "why": "This is the step the flow exists for. Priya holds no approver role, but that is not why she is refused: grant her one and the answer is the same, because the control is about provenance rather than permissions (UAT-005 §5). The expected outcome of this step is 403 — a refusal is what success looks like here, and the run continues past it because the instance behaved correctly. Read the body: errors.reason is the machine-readable self-approval, not prose a client would have to parse. Then look at the frame above and see who was asking.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentA}}/approvals",
+      "as": "priya",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}", "decision": "approved" },
+      "expect": [403],
+      "capture": {},
+      "unverifiable": [
+        "That nothing moved. This step shows the refusal; that no approval row and no audit event were written is UAT-005 §12's SQL, which a browser cannot run. The next step's approvalsHeld figure comes back as 1, not 2, which is the observable half."
+      ],
+      "subjects": [
+        { "variable": "paymentA", "type": "payment-instruction", "label": "Payment A, after the refusal" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "checker-approves-a",
+      "title": "Wei approves payment A",
+      "why": "Same request, same payment, one field different — who is asking. That pair is the whole of C-01, and it is why the acting actor is in the frame rather than in a tooltip.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentA}}/approvals",
+      "as": "wei",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}", "decision": "approved" },
+      "expect": [201],
+      "capture": { "approvalA": "approval.id" },
+      "subjects": [
+        { "variable": "approvalA", "type": "approval", "label": "Wei's approval of payment A" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "checker-approves-b",
+      "title": "Wei approves payment B",
+      "why": "SGD 500.00 is inside Wei's SGD 5,000.00 ceiling and below the two-approval band, so one decision satisfies it. The response says approvalsRequired and approvalsHeld; both are the instance's figures.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentB}}/approvals",
+      "as": "wei",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}", "decision": "approved" },
+      "expect": [201],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "checker-approves-c",
+      "title": "Wei approves payment C",
+      "why": "The payment nobody will answer about is approved on exactly the same terms as the others. Nothing about its fate is known yet, and nothing here anticipates it.",
+      "method": "POST",
+      "path": "/payment-instructions/{{paymentC}}/approvals",
+      "as": "wei",
+      "idempotent": true,
+      "body": { "organisationId": "{{organisationId}}", "decision": "approved" },
+      "expect": [201],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "batch",
+      "title": "Sam batches the three approved payments",
+      "why": "Settlement is a controller's right and never an approver's: no role holds both payment/approve and settlement/execute, so the actor who agreed a payment is never the actor who pushes it out of the door. A batch is one scheme, one currency, one value date. Nothing has been released yet — the balances below are the position before the money moves.",
+      "method": "POST",
+      "path": "/settlement-batches",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "scheme": "SIM-RTGS",
+        "currency": "SGD",
+        "valueDate": "2026-12-01",
+        "instructionIds": ["{{paymentA}}", "{{paymentB}}", "{{paymentC}}"]
+      },
+      "expect": [201],
+      "capture": { "settlementBatch": "id" },
+      "subjects": [
+        { "variable": "settlementBatch", "type": "settlement-batch", "label": "The SIM-RTGS batch" }
+      ],
+      "readouts": [
+        {
+          "label": "1100-CLIENT-FUNDS, before release",
+          "why": "The pooled client-funds account. Read now so the change at the next step is a change you watched, rather than a number that appeared.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1300-IN-TRANSIT, before release",
+          "why": "The clearing account. Empty until something is released, which is the property ADR-0018 chose design (a) to get.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE, before release",
+          "why": "What is owed back to the client. Shown throughout so the pair can be read together rather than one side at a time.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "release",
+      "title": "Sam releases the batch — and the money becomes visible in flight",
+      "why": "Submitting the batch releases every instruction in it and posts the in-transit leg. Compare the three balances below with the same three above: the clearing exposure is now readable from the ledger alone, which is the property design (b) in ADR-0018 would have lost by leaving 1100 overstating available funds by the same amount. The statement window below runs to 2035 on purpose — a statement's `to` is exclusive, and asking for a period ending now would miss an entry posted in the same second.",
+      "method": "POST",
+      "path": "/settlement-batches/{{settlementBatch}}/submit",
+      "as": "sam",
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": {},
+      "readouts": [
+        {
+          "label": "1100-CLIENT-FUNDS, after release",
+          "why": "Read again from the instance. This page did not adjust the figure above; it asked a second time.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1300-IN-TRANSIT, after release",
+          "why": "The clearing exposure: three payments released and none yet answered for. Minor units, exactly as the instance reports them.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE, after release",
+          "why": "The liability side, read on the same terms as the other two.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ],
+      "unverifiable": [
+        "Which journal entries produced these balances. The statement's closingBalance is what this flow reads; the entries behind it are on each account's statement in full, and the evidence view shows the batch's own audit trail.",
+        "That the ledger nets to zero. That is a property over every entry in the instance, which UAT-006 §10 checks in SQL. Nothing a browser can ask demonstrates it."
+      ]
+    }
+  ]
+}

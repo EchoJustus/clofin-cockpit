@@ -23,6 +23,7 @@ which also amends
 |---|---|---|
 | [0001](0001-typescript-on-a-tsc-only-toolchain-without-a-framework.md) | TypeScript on a `tsc`-only toolchain, with no framework and no bundler | Accepted |
 | [0002](0002-the-build-guard-evolves-forms-are-permitted-and-what-still-is-not.md) | The build guard evolves — forms are permitted, and what deliberately still is not | Accepted |
+| [0003](0003-operating-a-live-instance-one-runner-explicit-actors-and-figures-that-are-never-computed.md) | Operating a live instance — one runner, an explicit acting actor, and figures that are never computed | Accepted |
 
 ## Conventions
 

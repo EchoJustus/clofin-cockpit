@@ -1,10 +1,16 @@
 {
   "id": "high-value-two-approver",
-  "formatVersion": 1,
-  "version": "1.0.0",
+  "role": "bootstrap",
+  "formatVersion": 2,
+  "version": "1.1.0",
   "title": "High-value, two approvers from the first cent",
   "summary": "A stricter organisation: every payment needs two approvals whatever its size, three above SGD 100,000.00, and the two checkers have ceilings that do not overlap — so a large payment cannot be approved twice by the same kind of person. One maker, no second operator.",
   "source": "The same tables as uat-standard, with the band structure PRD Q1 and ADR-0015 make configurable per organisation. Written as the contrast case: same shape, different policy, so the runner can be seen to carry none of it.",
+  "requires": [],
+  "unverifiable": [
+    "That this instance is otherwise empty. The profile creates one organisation and refuses to continue if the short name is taken, but it does not and cannot survey what else is on the instance.",
+    "The three shipped operation flows do not run against an instance seeded with this profile. They act as uat-standard's actor keys, and this profile mints different people with a different policy — so a flow started here is refused by name before it sends anything, rather than failing partway through with a 401."
+  ],
 
   "actors": [
     { "key": "dara", "displayName": "Dara (maker)", "roles": ["operator"], "limits": [] },

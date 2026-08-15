@@ -833,3 +833,298 @@ h3 {
   margin: 0 0 0.3rem;
   font-size: 1rem;
 }
+
+/* ---------------------------------------------------------------------------
+   The acting actor
+   ---------------------------------------------------------------------------
+   In the frame rather than in the view, because the screens below it show
+   payments being refused and approved, and an image of one of those is
+   misleading unless it carries who was asking. A footer would be cropped out
+   of exactly the screenshot that most needs it. */
+
+.frame__acting {
+  margin-top: 0.7rem;
+  border-top: 1px solid #2c5b74;
+  padding-top: 0.7rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.acting__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #9ab8c6;
+}
+
+.acting__value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f2fbff;
+}
+
+.acting__value--none {
+  font-weight: 400;
+  color: #9ab8c6;
+}
+
+.card--acting {
+  border-left: 3px solid #2c5b74;
+}
+
+.switcher {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.switcher__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid #d8dee3;
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+}
+
+.switcher__item--on {
+  border-color: #1b6b4c;
+  background: #f2fbf7;
+}
+
+.switcher__roles {
+  font-size: 0.75rem;
+  color: #5a6b76;
+}
+
+/* ---------------------------------------------------------------------------
+   Figures and readouts
+   ---------------------------------------------------------------------------
+   A figure is printed as the instance sent it — minor units and all. There is
+   deliberately no styling here that implies a currency, a decimal point or a
+   magnitude, because this repository does not convert one. */
+
+.step__readouts {
+  margin-top: 0.7rem;
+  border: 1px solid #cfd8de;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  background: #fafcfd;
+}
+
+.step__readouts h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.readouts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.readout h5 {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem;
+}
+
+.readout__why {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #4a5b66;
+}
+
+.readout__raw {
+  margin-top: 0.4rem;
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border: 1px solid #b9c7d0;
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  background: #ffffff;
+}
+
+.figure--absent {
+  border-style: dashed;
+  background: #fbfbfb;
+}
+
+.figure__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5a6b76;
+}
+
+.figure__value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  word-break: break-all;
+}
+
+.figure__path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: #7a8b96;
+}
+
+/* ---------------------------------------------------------------------------
+   Choices, subjects and evidence */
+
+.step__choice {
+  margin-top: 0.7rem;
+  border: 1px solid #b08900;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  background: #fffdf4;
+}
+
+.step__choice h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.choices {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.choices__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.choices__why {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #4a5b66;
+}
+
+.choices__call {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #5a6b76;
+}
+
+.choices__call--none {
+  font-style: italic;
+}
+
+.step__actor {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+  color: #24506b;
+  font-weight: 600;
+}
+
+.step__chosen {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+  color: #7a5c00;
+}
+
+.step__subjects {
+  margin-top: 0.7rem;
+  border-top: 1px dashed #cfd8de;
+  padding-top: 0.5rem;
+}
+
+.step__subjects h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+}
+
+.subjects {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.subjects__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.subjects__type {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5a6b76;
+}
+
+.subjects__id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #7a8b96;
+  word-break: break-all;
+}
+
+.card--evidence {
+  border-left: 3px solid #1b6b4c;
+}
+
+.card--inherited {
+  border-left: 3px solid #7a8b96;
+}
+
+.inherited {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.inherited li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.inherited__name {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.inherited__value,
+.inherited__from {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: #5a6b76;
+  word-break: break-all;
+}
+
+.steps__readouts {
+  font-size: 0.78rem;
+  color: #5a6b76;
+}

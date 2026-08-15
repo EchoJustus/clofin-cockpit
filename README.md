@@ -12,9 +12,11 @@ quotation from that repository's audited documents.
 
 ## Status
 
-**Phase 2 is built: the cockpit connects to a CloFin instance you started and
-bootstraps a synthetic organisation through the real API, showing every request
-and every response.**
+**Phase 3 is built: the cockpit walks the whole product against a live instance
+— a payment refused to its own creator, the simulated scheme played by hand,
+reconciliation through a rejected correction to a posted entry, and every
+touched subject's audit evidence one click away.** Every figure on every screen
+is a value the instance returned.
 
 The governing architecture decision is
 [`ADR-0026`](https://github.com/EchoJustus/clofin-core/blob/main/docs/ADR/0026-three-repositories-and-the-cockpits-role-boundary.md)
@@ -26,6 +28,51 @@ a **default-closed** CORS allowlist and a self-reported `sourceCommit` on
 `GET /`. An instance sends no CORS header at all unless its operator names an
 origin, so connecting to one means setting `CLOFIN_CORS_ALLOWED_ORIGINS` on it
 first.
+
+**What phase 3 added:**
+
+- **The acting actor, in the frame.** Whose `X-Actor-Id` the next request will
+  carry is shown beside the scope statement on every screen, and every step
+  records which actor made it. Switching is an explicit click: a step that
+  belongs to somebody else **sends nothing at all** — not even a precheck — and
+  waits for you to hand over. Nothing switches on your behalf, including the
+  evidence view, which says which actor it will become before it does.
+- **The payment flow, with the refusal shown for real.** Three payments are
+  raised and submitted by the maker; she then attempts to approve one herself
+  and the instance refuses her with a `403` carrying `reason: self-approval`,
+  rendered body and all, with her name in the frame beside it. A checker
+  approves, a controller batches and releases, and the clearing exposure appears
+  in `1300-IN-TRANSIT`.
+- **Playing the simulated scheme by hand.** For a released batch you are the
+  scheme: settle an item, deliver the same message again and watch it replay,
+  answer a second item and then contradict that answer and watch the `409` keep
+  its receipt, say nothing at all about a third, sweep the timeout, and send the
+  late answer. **One deliberate click per response.** There is no macro, no
+  auto-play and no timer — a control that produced misbehaviour on its own would
+  make this a demo reel rather than an operator console. `SIM-` names render
+  exactly as they are sent and returned.
+- **Balances re-read, never adjusted.** After every scheme response the three
+  account balances are read again from real statement calls, and each figure is
+  shown with the response it came from directly beneath it. Minor units are
+  printed as the instance sent them — `{"currency":"SGD","minorUnits":150000}`,
+  not `SGD 1,500.00`, because that conversion would be arithmetic this
+  repository performed on a number it claims not to compute.
+- **The reconciliation flow.** The scheme's own statement is generated and
+  posted straight back — the document the instance returned, unchanged, with
+  your organisation id added — matching every line with its rule id. Then a
+  deliberately perturbed statement opens a break with its kind and its detail;
+  the break is assigned, a correction is proposed, its proposer is refused when
+  he tries to approve it himself, a checker **rejects it with a reason**, and a
+  second correction is approved and posts a journal entry that resolves the
+  break.
+- **The evidence view.** For any subject a flow touched, its evidence pack and
+  its audit events from the real endpoints, one click from the step that touched
+  it — both answers rendered exactly as they arrived.
+- **A figure cannot originate here.** [`src/figures.ts`](src/figures.ts) is the
+  only path by which a value in a response becomes a number on the screen, and
+  it contains no arithmetic. A test asserts every projected figure appears
+  verbatim in the body it was read from, and the build refuses to publish a site
+  containing a number formatter or arithmetic on a money-carrying member.
 
 **What phase 2 added:**
 
@@ -87,6 +134,10 @@ GitHub Pages — no server, no telemetry, no analytics, no third-party CDN:
   **[`docs/ADR/0002`](docs/ADR/0002-the-build-guard-evolves-forms-are-permitted-and-what-still-is-not.md)**
   records what phase 2 changed about the build's refusals, and what it
   deliberately did not.
+  **[`docs/ADR/0003`](docs/ADR/0003-operating-a-live-instance-one-runner-explicit-actors-and-figures-that-are-never-computed.md)**
+  records phase 3: one runner rather than two, the acting-actor invariant, the
+  `choice` step and why there is no macro, and how "computes no figure" is
+  enforced rather than promised.
 
 **What this page stores.** One thing: the base URLs and labels of instances you
 have connected, so you do not retype them. Nothing else — and the build refuses
@@ -100,10 +151,18 @@ machine, or a GitHub Codespace's forwarded port — are one constant in
 `Content-Security-Policy` is generated at build time, so the browser refuses
 what the code refuses.
 
-**What is still gated.** Operating flows — create → submit → approve → settle,
-statement ingestion, working the breaks, and playing the simulated scheme by
-hand — are phase 3. The Codespaces and Actions-runner drivers are later phases
-still.
+**What is still gated.** The Codespaces driver and any handling of a GitHub
+token, and the Actions scenario runner, are later phases. Rule 3 below stays
+forward-tensed until one of them arrives.
+
+**What the flows cannot show, and say so.** Every flow carries its own list, on
+screen, before it is run. Two are worth naming here. A retried submission's
+`Idempotent-Replayed` header — the evidence UAT-004 turns on — is **not** in
+this instance's `Access-Control-Expose-Headers`, so no browser page can read it;
+the `curl` beside every step reproduces the request in a terminal where it is
+visible. And the timeout path shows that CloFin **stopped waiting**, never what
+happened to the money: the payment stays `released`, its value stays in
+`1300-IN-TRANSIT`, and nothing here converts unknown into failed.
 
 **No credential is handled here.** No GitHub token is asked for, stored or
 sent; every GitHub read is anonymous, and the build fails if a token header or
@@ -146,6 +205,12 @@ what the system answered.
   simulated scheme by hand**: settle, return, contradict, duplicate, or go
   silent on individual items and watch the real system respond. Every action
   shows the raw API request it makes and the raw response it receives.
+  **Built** — three flow documents in [`profiles/`](profiles), one deliberate
+  click per scheme response, and the three account balances re-read from the
+  instance after every one.
+- **Evidence** — for any subject a flow touched, its audit events and its
+  evidence pack from the real audit endpoints, one click from the step that
+  touched it. **Built.**
 
 ## The rules this repository lives under
 
