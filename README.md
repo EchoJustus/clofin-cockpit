@@ -98,9 +98,11 @@ what the system answered.
 2. **Control claims are quotations.** Any statement about what CloFin
    guarantees is quoted verbatim from `clofin-core`'s `COMPLIANCE.md` or
    `DOMAIN_MODEL.md`, attributed and linked at the deployed commit.
-3. **No secrets live here.** A GitHub token you supply stays in your own
-   browser session; CloFin credentials are synthetic and per-instance; this
-   repository's history contains no credential of any kind.
+3. **No secrets live here.** The current phase handles no token at all — every
+   GitHub read is anonymous. When a later phase introduces a token you supply,
+   it will stay in your own browser session; CloFin credentials are synthetic
+   and per-instance; and this repository's history contains no credential of
+   any kind.
 4. **The scope statement below renders in-frame on every screen**, beside the
    deployed instance's tag, commit and release-audit coverage.
 
