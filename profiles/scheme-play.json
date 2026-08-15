@@ -325,6 +325,20 @@
           "method": "GET",
           "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
           "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Read on the same terms as after every other response in this flow. Silence is an action an operator took, and it gets the same three readings as the others so that 'nothing moved' is something you checked rather than something you assumed.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The third of the three, for the same reason.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
         }
       ]
     },
@@ -363,6 +377,13 @@
           "why": "Unchanged by the sweep, and re-read to show it.",
           "method": "GET",
           "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The third of the three. A sweep moves no money at all, and all three readings are taken so that the claim is checked rather than asserted.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
           "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
         }
       ],

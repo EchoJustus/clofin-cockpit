@@ -299,6 +299,51 @@ describe("the shipped flows", () => {
     }
   });
 
+  /**
+   * `clofin.audit/subject-types`, as it stands at `e8c5bf6`.
+   *
+   * This is a copy of a list that lives in `clofin-core`, and a copy can drift —
+   * which is why the evidence screen renders the **pack's own** `subjectType`
+   * beside the flow's label rather than instead of it. A document here that had
+   * fallen out of date would show its label next to the instance's contradicting
+   * answer, on the same screen, rather than silently reclassifying anything.
+   * This test only catches a typo before an operator sees it.
+   */
+  const SUBJECT_TYPES = new Set([
+    "payment-instruction",
+    "approval",
+    "organisation",
+    "account",
+    "journal-entry",
+    "settlement-batch",
+    "reconciliation-statement",
+    "reconciliation-break",
+    "reconciliation-adjustment",
+  ]);
+
+  it("labels every subject with a kind the audit vocabulary knows", () => {
+    for (const id of [...PROFILE_IDS, ...FLOW_IDS]) {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") continue;
+      for (const step of result.profile.steps) {
+        const subjects =
+          step.kind === "request"
+            ? step.subjects
+            : step.kind === "choice"
+              ? step.options.flatMap((option) => option.call?.subjects ?? [])
+              : [];
+        for (const subject of subjects) {
+          assert.ok(
+            SUBJECT_TYPES.has(subject.type),
+            `${id}/${step.id} calls ${subject.variable} a "${subject.type}", which is not a ` +
+              "kind clofin-core's audit vocabulary knows",
+          );
+        }
+      }
+    }
+  });
+
   it("offers every subject it declares from a value some step captures", () => {
     const captured = new Set<string>();
     for (const id of [...PROFILE_IDS, ...FLOW_IDS]) {

@@ -41,6 +41,9 @@
       },
       "expect": [201],
       "capture": { "organisationId": "id" },
+      "subjects": [
+        { "variable": "organisationId", "type": "organisation", "label": "The synthetic organisation this run created" }
+      ],
       "conflict": {
         "statuses": [409],
         "recoverable": false,
@@ -96,6 +99,9 @@
       },
       "expect": [201],
       "capture": { "accountClientFunds": "id" },
+      "subjects": [
+        { "variable": "accountClientFunds", "type": "account", "label": "1100-CLIENT-FUNDS — pooled client funds" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
@@ -128,6 +134,9 @@
       },
       "expect": [201],
       "capture": { "accountInTransit": "id" },
+      "subjects": [
+        { "variable": "accountInTransit", "type": "account", "label": "1300-IN-TRANSIT — the clearing account" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
@@ -160,6 +169,9 @@
       },
       "expect": [201],
       "capture": { "accountClientPayable": "id" },
+      "subjects": [
+        { "variable": "accountClientPayable", "type": "account", "label": "2100-CLIENT-PAYABLE — client payable" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
@@ -192,6 +204,9 @@
       },
       "expect": [201],
       "capture": { "accountUnapplied": "id" },
+      "subjects": [
+        { "variable": "accountUnapplied", "type": "account", "label": "2200-UNAPPLIED — the suspense account" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
