@@ -1,0 +1,477 @@
+{
+  "id": "scheme-play",
+  "role": "flow",
+  "formatVersion": 2,
+  "version": "1.0.0",
+  "title": "Playing the simulated scheme by hand",
+  "summary": "You are the scheme now. For each item in the released batch you decide what SIM-RTGS says: it settles one, repeats itself, answers a second item and then contradicts its own answer, says nothing at all about a third, and finally sends the late answer for the one the sweep gave up on. Every response is one deliberate click and one real request. After each one the three account balances are re-read from the instance, so clearing exposure moves on screen because the ledger moved.",
+  "source": "clofin-core docs/uat/UAT-006-settlement-simulation.md steps 6 to 9, driven through a browser. The scheme names are the only two the database accepts; they are rendered exactly as they are sent and returned.",
+  "requires": [
+    "organisationId",
+    "settlementBatch",
+    "paymentA",
+    "paymentB",
+    "paymentC",
+    "accountClientFunds",
+    "accountInTransit",
+    "accountClientPayable"
+  ],
+
+  "unverifiable": [
+    "That a duplicate cost nothing in the database. The replayed response says replayed: true and the batch's schemeResponses list does not grow, both of which are shown — but the underlying claim, two journal entries and one audit event, is UAT-006 §7b's SQL and a browser cannot run it.",
+    "That a refused message left a receipt. The 409 body carries receiptId, disposition: refused and dispositionReason, and that is the evidence this flow can show. The row itself is read in SQL by UAT-006 §7c(ii).",
+    "That the ledger still nets to zero after any mix of outcomes. That is a property over every entry in the instance (UAT-006 §10), not something any endpoint reports.",
+    "Anything about real money. SIM-RTGS and SIM-ACH are the only scheme names this database accepts, and they exist so that nothing here can be mistaken for a network."
+  ],
+
+  "actors": [
+    { "key": "sam", "displayName": "Sam (controller)", "roles": ["controller"], "limits": [] },
+    { "key": "rae", "displayName": "Rae (auditor)", "roles": ["auditor"], "limits": [] }
+  ],
+
+  "thresholds": [],
+
+  "steps": [
+    {
+      "kind": "request",
+      "id": "read-batch",
+      "title": "Read the released batch, and the position before you start",
+      "why": "Every item is outstanding: outcome is null on all three. The balances below are the baseline the rest of this flow is compared against, and they are read from the instance rather than carried over from the previous flow.",
+      "method": "GET",
+      "path": "/settlement-batches/{{settlementBatch}}?organisationId={{organisationId}}",
+      "as": "sam",
+      "expect": [200],
+      "capture": {},
+      "subjects": [
+        { "variable": "settlementBatch", "type": "settlement-batch", "label": "The SIM-RTGS batch" }
+      ],
+      "readouts": [
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Pooled client funds.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "The clearing exposure: what has been released and not yet answered for.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "What is owed back to the client.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-a-answer",
+      "title": "Item A: what does SIM-RTGS say?",
+      "why": "One option, because the two steps after this one are written for a settled item — a duplicate has to duplicate something specific. It is still your click and still one real request: nothing is sent until you send it.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "settle-a",
+          "label": "SIM-RTGS settles it — reference SIM-STL-A",
+          "why": "Resolves the item, transitions the instruction to settled and posts finality. Watch 1300-IN-TRANSIT drain by this payment's value.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "settled",
+            "instructionId": "{{paymentA}}",
+            "reference": "SIM-STL-A"
+          },
+          "expect": [200],
+          "capture": {},
+          "subjects": [
+            { "variable": "paymentA", "type": "payment-instruction", "label": "Payment A, now settled" }
+          ]
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Re-read after the response.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "One payment has now reached its destination, so the clearing exposure is smaller. The figure is the instance's.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "Re-read after the response.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-a-duplicate",
+      "title": "Item A again: the scheme repeats itself",
+      "why": "A scheme answering twice is not an error — it is Tuesday. The message below is byte for byte the one you just sent, so its replay key and its digest are the same. The answer is 200 with replayed: true, the original outcome reproduced rather than re-derived, and the batch's schemeResponses list does not grow.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "duplicate-a",
+          "label": "Deliver SIM-STL-A a second time, unchanged",
+          "why": "Identical batch, instruction, kind and reference. Compare the response's replayed flag and the length of schemeResponses with the step above.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "settled",
+            "instructionId": "{{paymentA}}",
+            "reference": "SIM-STL-A"
+          },
+          "expect": [200],
+          "capture": {}
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Unchanged from the step above, and that is the point: a duplicate delivery moves no money. It is re-read rather than assumed.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Also unchanged, and also asked for again.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "Also unchanged, and also asked for again.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-b-answer",
+      "title": "Item B: what does SIM-RTGS say?",
+      "why": "Here the answer is genuinely yours. Both options are valid at this point and nothing later in this flow depends on which you take — the reconciliation flow reads whatever statement the scheme then produces. The creditor account ends in 7, which the scheme's own guidance maps to a return, but that guidance is advice to whoever composes the request and not a rule this endpoint enforces: send settled and it will settle.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "return-b",
+          "label": "SIM-RTGS sends it back — reference SIM-RTN-B",
+          "why": "A returned response must carry a reason, and the reason is what makes the exception queue workable. The instruction becomes returned, which is terminal: a second attempt is a new instruction with its own maker-checker cycle.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "returned",
+            "instructionId": "{{paymentB}}",
+            "reference": "SIM-RTN-B",
+            "reason": "SIM-RETURN: beneficiary account closed"
+          },
+          "expect": [200],
+          "capture": {},
+          "subjects": [
+            { "variable": "paymentB", "type": "payment-instruction", "label": "Payment B, after the scheme answered" }
+          ]
+        },
+        {
+          "id": "settle-b",
+          "label": "SIM-RTGS settles it after all — reference SIM-STL-B",
+          "why": "The digit in the creditor account is guidance, not a constraint. Taking this option is how you see that for yourself, and it was worth an audit finding: describing the digit as the derivation rule was a contract a client could have built against and CloFin would not have honoured.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "settled",
+            "instructionId": "{{paymentB}}",
+            "reference": "SIM-STL-B"
+          },
+          "expect": [200],
+          "capture": {},
+          "subjects": [
+            { "variable": "paymentB", "type": "payment-instruction", "label": "Payment B, after the scheme answered" }
+          ]
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Whichever answer you sent, item B is no longer in flight. Re-read from the instance.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "A return unwinds to a different place than a settlement does. Read both sides rather than one.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The liability side, on the same terms.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-b-contradiction",
+      "title": "Item B: the scheme contradicts itself",
+      "why": "A late message claiming the opposite of what already happened. Both options are refused with 409 — whichever you sent a moment ago, the item now has an outcome, and silently overwriting it would be a settled payment turning into a returned one on the say-so of a late message. The expected outcome of this step is that refusal. Read the body: the receipt was committed before the status was rendered, so the arrival is provable even though CloFin could not act on it. Send the same one twice and you get the same answer reproduced, not re-evaluated against state that has arrived since.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "contradict-b-settled",
+          "label": "Claim it settled after all — reference SIM-CON-B",
+          "why": "Take this one if you returned item B above. It is the late message that would cost real money if it were applied.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "settled",
+            "instructionId": "{{paymentB}}",
+            "reference": "SIM-CON-B"
+          },
+          "expect": [409],
+          "capture": {}
+        },
+        {
+          "id": "contradict-b-returned",
+          "label": "Claim it came back after all — reference SIM-CON-B",
+          "why": "Take this one if you settled item B above. Same refusal, from the other direction.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "returned",
+            "instructionId": "{{paymentB}}",
+            "reference": "SIM-CON-B",
+            "reason": "SIM-RETURN: late contradiction"
+          },
+          "expect": [409],
+          "capture": {}
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Unchanged: a refused message moves nothing. Asked for again rather than assumed.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Also unchanged, and also re-read.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "Also unchanged, and also re-read.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-c-silence",
+      "title": "Item C: the scheme says nothing",
+      "why": "The case the whole settlement module exists for. There is one option and it sends no request at all, because that is what silence is — a demonstration that fabricated an outcome here would be demonstrating the opposite of the thing worth showing. The balances are still re-read, so you can see that nothing moved because nothing happened.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "stay-silent",
+          "label": "Send nothing at all",
+          "sends": false,
+          "why": "No message is composed, no request is made, and item C stays outstanding with outcome null. The next step is what an operator does when they get tired of waiting.",
+          "nothingNote": "No request was sent, so this step demonstrates only that the cockpit sent nothing. Item C is outstanding because nobody answered about it, and the batch's own state at the next step is the instance's account of that — not this page's."
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Still carrying item C's value, because item C is still in flight. Read from the instance, with no request having been sent about it.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Read on the same terms as after every other response in this flow. Silence is an action an operator took, and it gets the same three readings as the others so that 'nothing moved' is something you checked rather than something you assumed.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The third of the three, for the same reason.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "timeout-sweep",
+      "title": "Sam stops waiting — the timeout sweep",
+      "why": "This is a real endpoint and an explicit operator action, not a background daemon: a timeout that fires itself is one nobody can point at afterwards. Every item the batch is still waiting on becomes timed-out, and the batch derives to partially-settled. Read timedOut in the response — it names item C.",
+      "method": "POST",
+      "path": "/settlement-batches/{{settlementBatch}}/timeout-sweep",
+      "as": "sam",
+      "body": { "organisationId": "{{organisationId}}", "timeoutSeconds": 0 },
+      "expect": [200],
+      "capture": {},
+      "readouts": [
+        {
+          "label": "Payment C's own status",
+          "why": "released, not failed. The sweep changed the settlement item, not the payment: CloFin does not know what happened to this money and does not pretend to. Treating unknown as failed and re-batching is how a payment gets made twice.",
+          "method": "GET",
+          "path": "/payment-instructions/{{paymentC}}?organisationId={{organisationId}}",
+          "figures": [
+            { "label": "status", "path": "status" },
+            { "label": "permittedTransitions", "path": "permittedTransitions" }
+          ]
+        },
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Item C's value is still here. Money of unknown fate belongs in the clearing account, and a sweep that drained it would be reporting a decision CloFin has not made.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "Unchanged by the sweep, and re-read to show it.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The third of the three. A sweep moves no money at all, and all three readings are taken so that the claim is checked rather than asserted.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ],
+      "unverifiable": [
+        "What happened to item C's money. This is the honest limit of the timeout path and it is a limit of the world, not of the interface: the sweep records that CloFin stopped waiting, and nothing else. The payment stays released, its value stays in 1300-IN-TRANSIT, and no lifecycle event is driven.",
+        "That the sweep is idempotent. Running it twice marks nothing and emits no audit event, per the contract; this flow runs it once, so it shows that claim being made rather than being kept.",
+        "That item C can never be re-batched. The refusal is a unique index in the schema rather than a check in a handler, which is what makes it bind SQL run by hand as well as the API — and that is exactly why a browser cannot demonstrate it. UAT-006 §8b does it by hand.",
+        "Whether the sweep marked anything at all, if you answered item C rather than staying silent at the step above. The response's timedOut list is the instance's answer to that question, and it is rendered whether it is empty or not."
+      ],
+      "subjects": [
+        { "variable": "settlementBatch", "type": "settlement-batch", "label": "The batch, after the sweep" },
+        { "variable": "paymentC", "type": "payment-instruction", "label": "Payment C — unknown, not failed" }
+      ]
+    },
+
+    {
+      "kind": "choice",
+      "id": "item-c-late-answer",
+      "title": "Item C: the scheme finally says what happened",
+      "why": "A timeout-resolution is the only kind that may answer an item a sweep has given up on, and it resolves that item exactly once. Which answer arrives is genuinely yours to choose; both are valid here, and the item's finality entry posts now rather than when the payment was released.",
+      "as": "sam",
+      "options": [
+        {
+          "id": "late-settled",
+          "label": "It settled — reference SIM-TMO-C, outcome settled",
+          "why": "The money arrived after all. The instruction becomes settled and 1300-IN-TRANSIT drains to nothing.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "timeout-resolution",
+            "instructionId": "{{paymentC}}",
+            "reference": "SIM-TMO-C",
+            "outcome": "settled"
+          },
+          "expect": [200],
+          "capture": {},
+          "subjects": [
+            { "variable": "paymentC", "type": "payment-instruction", "label": "Payment C, resolved late" }
+          ]
+        },
+        {
+          "id": "late-returned",
+          "label": "It came back — reference SIM-TMO-C, outcome returned",
+          "why": "The other half of the same fact. A returned resolution carries a reason like any return, and the payment is terminal afterwards.",
+          "method": "POST",
+          "path": "/settlement-batches/{{settlementBatch}}/scheme-responses",
+          "body": {
+            "organisationId": "{{organisationId}}",
+            "kind": "timeout-resolution",
+            "instructionId": "{{paymentC}}",
+            "reference": "SIM-TMO-C",
+            "outcome": "returned",
+            "reason": "SIM-RETURN: never reached the beneficiary"
+          },
+          "expect": [200],
+          "capture": {},
+          "subjects": [
+            { "variable": "paymentC", "type": "payment-instruction", "label": "Payment C, resolved late" }
+          ]
+        }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT",
+          "why": "Nothing is in flight any more. Every payment has been answered for, one way or another, and the clearing account says so.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "1100-CLIENT-FUNDS",
+          "why": "The final position on the asset side, read from the instance.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientFunds}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2100-CLIENT-PAYABLE",
+          "why": "The final position on the liability side, read on the same terms.",
+          "method": "GET",
+          "path": "/accounts/{{accountClientPayable}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ],
+      "unverifiable": [
+        "That a timeout resolves exactly once. A second resolution under a different reference is refused with 409, which this flow does not send — UAT-006 §9 does."
+      ]
+    }
+  ]
+}

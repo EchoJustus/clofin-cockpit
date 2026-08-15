@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 
-import { PROFILE_IDS, readProfile, SUPPORTED_FORMAT_VERSION } from "../src/profiles.js";
+import { FLOW_IDS, PROFILE_IDS, readProfile, SUPPORTED_FORMAT_VERSION } from "../src/profiles.js";
 
 /** Resolved from the repository root, which is where `node --test` is run. */
 function load(id: string): { document: unknown; raw: string } {
@@ -108,7 +108,11 @@ describe("the shipped profiles", () => {
         const keys = new Set(profile.actors.map((actor) => actor.key));
         for (const step of profile.steps) {
           const named =
-            step.kind === "request" ? [step.as, step.precheck?.as ?? null] : [step.verify.as];
+            step.kind === "request"
+              ? [step.as, step.precheck?.as ?? null]
+              : step.kind === "choice"
+                ? [step.as]
+                : [step.verify.as];
           for (const key of named) {
             if (key !== null) assert.ok(keys.has(key), `${step.id} acts as unminted ${key}`);
           }
@@ -160,10 +164,229 @@ describe("the shipped profiles", () => {
   });
 });
 
+describe("the shipped flows", () => {
+  for (const id of FLOW_IDS) {
+    describe(id, () => {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+
+      it("is a valid flow document", () => {
+        assert.equal(result.kind, "profile", result.kind === "refused" ? result.reason : "");
+      });
+
+      if (result.kind !== "profile") return;
+      const profile = result.profile;
+
+      it("declares the id its filename claims, this format version, and the flow role", () => {
+        assert.equal(profile.id, id);
+        assert.equal(profile.role, "flow");
+        assert.equal(profile.formatVersion, SUPPORTED_FORMAT_VERSION);
+      });
+
+      it("says what it cannot show, before it is run", () => {
+        assert.ok(
+          profile.unverifiable.length > 0,
+          "a flow that claims to demonstrate everything is a flow nobody can trust",
+        );
+        for (const line of profile.unverifiable) assert.ok(line.length > 30);
+      });
+
+      it("names what an earlier run has to have produced", () => {
+        assert.ok(profile.requires.length > 0, "a flow operates an instance somebody set up");
+        for (const name of profile.requires) assert.match(name, /^[A-Za-z][A-Za-z0-9]*$/);
+      });
+
+      it("names no host, so a flow cannot choose its own destination", () => {
+        assert.doesNotMatch(raw, /https?:\/\//, "every path is joined to the connected instance");
+      });
+
+      it("puts no literal UUID anywhere — every id comes from a run", () => {
+        assert.doesNotMatch(
+          raw,
+          /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+          "a literal id in a flow would be this repository asserting what is on an instance",
+        );
+      });
+
+      it("declares an actor for every step that acts, and mints none", () => {
+        assert.ok(profile.actors.length > 0);
+        for (const actor of profile.actors) {
+          assert.ok(actor.roles.length > 0, `${actor.key} holds no role, so it could do nothing`);
+        }
+      });
+
+      it("re-reads a figure only through a GET", () => {
+        for (const step of profile.steps) {
+          if (step.kind === "manual") continue;
+          for (const readout of step.readouts) {
+            assert.equal(readout.method, "GET", `${step.id}'s readout ${readout.label} acts`);
+            assert.ok(readout.figures.length > 0);
+            for (const figure of readout.figures) assert.ok(figure.path.length > 0);
+          }
+        }
+      });
+
+      it("gives every choice option a real call or an explicit statement that it sends none", () => {
+        for (const step of profile.steps) {
+          if (step.kind !== "choice") continue;
+          assert.ok(step.options.length > 0);
+          for (const option of step.options) {
+            if (option.call === null) {
+              assert.ok(
+                (option.nothingNote ?? "").length > 30,
+                `${step.id}/${option.id} sends nothing and does not say so at length`,
+              );
+            } else {
+              assert.ok(option.call.expect.length > 0);
+              assert.ok(option.why.length > 20, `${step.id}/${option.id} does not say what it means`);
+            }
+          }
+        }
+      });
+
+      it("renders SIM- names exactly as they are sent", () => {
+        // Every scheme reference this flow sends is SIM-prefixed, and no step
+        // relabels one for display. The check is on the document because that
+        // is where a prettified name would have to be written.
+        for (const match of raw.matchAll(/"reference":\s*"([^"]+)"/g)) {
+          assert.match(match[1] ?? "", /^SIM-/, `${match[1]} is not a simulated reference`);
+        }
+        for (const match of raw.matchAll(/"scheme":\s*"([^"]+)"/g)) {
+          assert.ok(
+            ["SIM-RTGS", "SIM-ACH"].includes(match[1] ?? ""),
+            `${match[1]} is not one of the two scheme names this database accepts`,
+          );
+        }
+      });
+    });
+  }
+
+  it("orders the flows so each captures what the next requires", () => {
+    const loaded = FLOW_IDS.map((id) => {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") assert.fail(`${id} is invalid`);
+      return result.profile;
+    });
+
+    // Everything the bootstrap profiles capture is available to the first flow.
+    const available = new Set<string>();
+    for (const id of PROFILE_IDS) {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") continue;
+      for (const step of result.profile.steps) {
+        if (step.kind === "request") for (const name of Object.keys(step.capture)) available.add(name);
+      }
+    }
+
+    for (const flow of loaded) {
+      for (const name of flow.requires) {
+        assert.ok(
+          available.has(name),
+          `${flow.id} requires ${name}, which no earlier document captures — the flows would ` +
+            "be unrunnable in the order they are listed",
+        );
+      }
+      for (const step of flow.steps) {
+        if (step.kind === "request") for (const name of Object.keys(step.capture)) available.add(name);
+        if (step.kind === "choice") {
+          for (const option of step.options) {
+            if (option.call) for (const name of Object.keys(option.call.capture)) available.add(name);
+          }
+        }
+      }
+    }
+  });
+
+  /**
+   * `clofin.audit/subject-types`, as it stands at `e8c5bf6`.
+   *
+   * This is a copy of a list that lives in `clofin-core`, and a copy can drift —
+   * which is why the evidence screen renders the **pack's own** `subjectType`
+   * beside the flow's label rather than instead of it. A document here that had
+   * fallen out of date would show its label next to the instance's contradicting
+   * answer, on the same screen, rather than silently reclassifying anything.
+   * This test only catches a typo before an operator sees it.
+   */
+  const SUBJECT_TYPES = new Set([
+    "payment-instruction",
+    "approval",
+    "organisation",
+    "account",
+    "journal-entry",
+    "settlement-batch",
+    "reconciliation-statement",
+    "reconciliation-break",
+    "reconciliation-adjustment",
+  ]);
+
+  it("labels every subject with a kind the audit vocabulary knows", () => {
+    for (const id of [...PROFILE_IDS, ...FLOW_IDS]) {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") continue;
+      for (const step of result.profile.steps) {
+        const subjects =
+          step.kind === "request"
+            ? step.subjects
+            : step.kind === "choice"
+              ? step.options.flatMap((option) => option.call?.subjects ?? [])
+              : [];
+        for (const subject of subjects) {
+          assert.ok(
+            SUBJECT_TYPES.has(subject.type),
+            `${id}/${step.id} calls ${subject.variable} a "${subject.type}", which is not a ` +
+              "kind clofin-core's audit vocabulary knows",
+          );
+        }
+      }
+    }
+  });
+
+  it("offers every subject it declares from a value some step captures", () => {
+    const captured = new Set<string>();
+    for (const id of [...PROFILE_IDS, ...FLOW_IDS]) {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") continue;
+      for (const step of result.profile.steps) {
+        if (step.kind === "request") for (const name of Object.keys(step.capture)) captured.add(name);
+        if (step.kind === "choice") {
+          for (const option of step.options) {
+            if (option.call) for (const name of Object.keys(option.call.capture)) captured.add(name);
+          }
+        }
+      }
+    }
+
+    for (const id of FLOW_IDS) {
+      const { document, raw } = load(id);
+      const result = readProfile(document, raw);
+      if (result.kind !== "profile") continue;
+      for (const step of result.profile.steps) {
+        const subjects =
+          step.kind === "request"
+            ? step.subjects
+            : step.kind === "choice"
+              ? step.options.flatMap((option) => option.call?.subjects ?? [])
+              : [];
+        for (const subject of subjects) {
+          assert.ok(
+            captured.has(subject.variable),
+            `${id}/${step.id} offers evidence for ${subject.variable}, which nothing captures`,
+          );
+        }
+      }
+    }
+  });
+});
+
 describe("readProfile refuses rather than defaults", () => {
   const valid = {
     id: "x",
-    formatVersion: 1,
+    role: "bootstrap",
+    formatVersion: 2,
     version: "1.0.0",
     title: "t",
     summary: "s",
@@ -194,7 +417,85 @@ describe("readProfile refuses rather than defaults", () => {
 
   const mutations: Readonly<Record<string, Mutation>> = {
     "a format version it does not read": (d) => {
-      d["formatVersion"] = 2;
+      d["formatVersion"] = 3;
+    },
+    "a role it does not know": (d) => {
+      d["role"] = "daemon";
+    },
+    "no role at all": (d) => {
+      delete d["role"];
+    },
+    "a choice with no options": (d) => {
+      d["steps"] = [{ kind: "choice", id: "c", title: "t", why: "w", as: "sam", options: [] }];
+    },
+    "a silent option that does not say what it did not do": (d) => {
+      d["steps"] = [
+        {
+          kind: "choice",
+          id: "c",
+          title: "t",
+          why: "w",
+          as: "sam",
+          options: [{ id: "quiet", label: "nothing", why: "w", sends: false }],
+        },
+      ];
+    },
+    "two options of one choice sharing an id": (d) => {
+      const option = {
+        id: "same",
+        label: "l",
+        why: "w",
+        method: "POST",
+        path: "/x",
+        expect: [200],
+      };
+      d["steps"] = [
+        {
+          kind: "choice",
+          id: "c",
+          title: "t",
+          why: "w",
+          as: "sam",
+          options: [option, { ...option }],
+        },
+      ];
+    },
+    "a readout that acts instead of reading": (d) => {
+      step(d)["readouts"] = [
+        {
+          label: "l",
+          why: "w",
+          method: "POST",
+          path: "/accounts",
+          figures: [{ label: "f", path: "closingBalance" }],
+        },
+      ];
+    },
+    "a readout that shows nothing": (d) => {
+      step(d)["readouts"] = [{ label: "l", why: "w", method: "GET", path: "/accounts", figures: [] }];
+    },
+    "a call that carries both a body and a document to send": (d) => {
+      step(d)["body"] = { a: 1 };
+      step(d)["bodyFrom"] = "statement";
+    },
+    "a manual step that claims its check covers everything": (d) => {
+      d["steps"] = [
+        {
+          kind: "manual",
+          id: "m",
+          title: "t",
+          why: "w",
+          statements: ["x"],
+          howToRun: ["y"],
+          verify: { title: "t", method: "GET", path: "/accounts", as: "sam", expect: [200], proves: "p" },
+          unverifiable: [],
+        },
+      ];
+    },
+    "a flow that declares no actors to act as": (d) => {
+      d["role"] = "flow";
+      d["actors"] = [];
+      d["steps"] = [{ ...step(d), as: null }];
     },
     "no steps at all": (d) => {
       d["steps"] = [];

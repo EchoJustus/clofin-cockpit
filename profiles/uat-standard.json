@@ -1,10 +1,16 @@
 {
   "id": "uat-standard",
-  "formatVersion": 1,
-  "version": "1.0.0",
+  "role": "bootstrap",
+  "formatVersion": 2,
+  "version": "1.1.0",
   "title": "UAT standard organisation",
-  "summary": "The actor set, chart of accounts and approval bands the CloFin UAT scripts use: a maker, two checkers with different ceilings, a controller, an auditor and a second operator; the 1100 / 1300 / 2100 chart in SGD; and one approval below SGD 1,000.00, two at or above it.",
-  "source": "clofin-core docs/uat/UAT-005-segregation-of-duties.md and UAT-006-settlement-simulation.md, and the capture harness's uat-005 scenario in tools/clofin/tools/capture/scenarios.clj",
+  "summary": "The actor set, chart of accounts and approval bands the CloFin UAT scripts use: a maker, two checkers with different ceilings, a controller, an auditor and a second operator; the 1100 / 1300 / 2100 / 2200 chart in SGD; and one approval below SGD 1,000.00, two at or above it. This is the instance the three operation flows are written against.",
+  "source": "clofin-core docs/uat/UAT-005-segregation-of-duties.md, UAT-006-settlement-simulation.md and UAT-007-reconciliation-and-breaks.md, and the capture harness's uat-005 scenario in tools/clofin/tools/capture/scenarios.clj",
+  "requires": [],
+  "unverifiable": [
+    "That this instance is otherwise empty. The profile creates one organisation and refuses to continue if the short name is taken, but it does not and cannot survey what else is on the instance.",
+    "That the seeded rows are the only actors, roles or bands. CloFin exposes no read for any of the four tables this profile writes by hand, so each manual step confirms one consequence through the API and says what it left unconfirmed."
+  ],
 
   "actors": [
     { "key": "priya", "displayName": "Priya (maker)", "roles": ["operator"], "limits": [] },
@@ -35,6 +41,9 @@
       },
       "expect": [201],
       "capture": { "organisationId": "id" },
+      "subjects": [
+        { "variable": "organisationId", "type": "organisation", "label": "The synthetic organisation this run created" }
+      ],
       "conflict": {
         "statuses": [409],
         "recoverable": false,
@@ -90,6 +99,9 @@
       },
       "expect": [201],
       "capture": { "accountClientFunds": "id" },
+      "subjects": [
+        { "variable": "accountClientFunds", "type": "account", "label": "1100-CLIENT-FUNDS — pooled client funds" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
@@ -122,6 +134,9 @@
       },
       "expect": [201],
       "capture": { "accountInTransit": "id" },
+      "subjects": [
+        { "variable": "accountInTransit", "type": "account", "label": "1300-IN-TRANSIT — the clearing account" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
@@ -154,12 +169,50 @@
       },
       "expect": [201],
       "capture": { "accountClientPayable": "id" },
+      "subjects": [
+        { "variable": "accountClientPayable", "type": "account", "label": "2100-CLIENT-PAYABLE — client payable" }
+      ],
       "precheck": {
         "title": "Read the chart of accounts first",
         "method": "GET",
         "path": "/accounts?organisationId={{organisationId}}",
         "as": "sam",
         "presentWhen": { "listAt": "accounts", "field": "code", "equals": "2100-CLIENT-PAYABLE" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "request",
+      "id": "account-2200",
+      "title": "Open 2200-UNAPPLIED",
+      "why": "The suspense account reconciliation posts an approved adjustment against. `clofin.recon.adjustment` names this code specifically — an organisation without it cannot resolve a break by moving the books, and the API says so rather than inventing an account. Opened here so that the reconciliation flow has somewhere to post.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "2200-UNAPPLIED",
+        "name": "Unapplied receipts",
+        "type": "liability",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountUnapplied": "id" },
+      "subjects": [
+        { "variable": "accountUnapplied", "type": "account", "label": "2200-UNAPPLIED — the suspense account" }
+      ],
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sam",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "2200-UNAPPLIED" }
       },
       "conflict": {
         "statuses": [409],

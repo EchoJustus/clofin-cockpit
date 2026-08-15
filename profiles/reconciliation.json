@@ -1,0 +1,296 @@
+{
+  "id": "reconciliation",
+  "role": "flow",
+  "formatVersion": 2,
+  "version": "1.0.0",
+  "title": "Reconciliation: a disagreement, a refused correction, and a posted entry",
+  "summary": "The simulated scheme's own statement is generated and posted straight back for matching — first the true one, which matches every line and opens no break, then a deliberately wrong one, which opens a break with its kind and its detail. The break is assigned, a correction is proposed, its proposer is refused when he tries to approve it himself, a checker rejects it with a reason, a second correction is proposed and approved, and the journal entry that resolves the break is read back. Nothing edits an entry: the books move by a new fact about a new moment.",
+  "source": "clofin-core docs/uat/UAT-007-reconciliation-and-breaks.md steps 1 to 12, driven through a browser. The statement posted for ingestion is the document the instance returned, with the organisation id added — the same thing UAT-007 does with jq.",
+  "requires": ["organisationId", "accountInTransit", "accountUnapplied"],
+
+  "unverifiable": [
+    "That re-delivering a statement changes nothing in the database. The receipt says replayed: true and returns the same id, which is shown; the counts UAT-007 §3 checks are SQL.",
+    "That one posted adjustment per break is guaranteed. The guard is a partial unique index in the schema, so it binds a fix-up script as well as a handler — which is exactly why a browser cannot demonstrate it (UAT-007 §11).",
+    "That the original journal entries were untouched. This flow reads the new entry the adjustment posted; that the earlier ones are unchanged is a property of an append-only table, checked in SQL.",
+    "The break's age. ageSeconds is derived when the break is read and stored nowhere, so the figure shown is true at the moment of that response and not afterwards."
+  ],
+
+  "actors": [
+    { "key": "sam", "displayName": "Sam (controller)", "roles": ["controller"], "limits": [] },
+    { "key": "wei", "displayName": "Wei (checker)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 500000 }] },
+    { "key": "nadia", "displayName": "Nadia (checker)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 5000000 }] },
+    { "key": "rae", "displayName": "Rae (auditor)", "roles": ["auditor"], "limits": [] }
+  ],
+
+  "thresholds": [],
+
+  "steps": [
+    {
+      "kind": "request",
+      "id": "generate-statement",
+      "title": "Ask the simulated scheme for its statement",
+      "why": "The scheme's own account of what it did, computed from the settlement records. The format is CloFin's own — SIM-CLOFIN-RECON-STATEMENT — and is deliberately not camt.053, MT940, BAI2 or any real scheme's schema. Count the lines against the batch: a payment the scheme never answered about produces no line at all, and its value is still sitting in 1300-IN-TRANSIT where value of unknown fate belongs.",
+      "method": "GET",
+      "path": "/settlement-statements?organisationId={{organisationId}}&scheme=SIM-RTGS&currency=SGD&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+      "as": "sam",
+      "expect": [200],
+      "capture": { "statementReference": "statementReference" },
+      "captureDocument": "trueStatement",
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT, before any matching",
+          "why": "Whatever is left here is what the scheme has not accounted for. Read from the instance so the number beside the statement is the ledger's own.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "ingest-statement",
+      "title": "Post that statement straight back, and watch it match",
+      "why": "The document below is the one the instance just returned, unchanged, with organisationId added — nothing was retyped, because retyping it would be this page asserting what the scheme said. Every line matches, each carrying the rule that made the match: R1-reference-amount-and-value-date. A match that could not say how it was made is a match nobody can defend. breaks is empty, and that is the correct answer for a statement that agrees.",
+      "method": "POST",
+      "path": "/reconciliation-statements",
+      "as": "sam",
+      "bodyFrom": "trueStatement",
+      "bodyMerge": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": { "trueReceipt": "id" },
+      "subjects": [
+        { "variable": "trueReceipt", "type": "reconciliation-statement", "label": "The receipt for the unperturbed statement" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "generate-perturbed",
+      "title": "Ask for a statement that is wrong in a named way",
+      "why": "A generator that could only produce agreement could not test disagreement. amount-mismatch is one of six named classes, so you can predict the break before you run anything: same payment, different amount. The statementReference differs from the true one because the perturbation is part of it, which is what makes this a second document rather than a contradiction of the first.",
+      "method": "GET",
+      "path": "/settlement-statements?organisationId={{organisationId}}&scheme=SIM-RTGS&currency=SGD&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z&perturbation=amount-mismatch",
+      "as": "sam",
+      "expect": [200],
+      "capture": {},
+      "captureDocument": "wrongStatement"
+    },
+
+    {
+      "kind": "request",
+      "id": "ingest-perturbed",
+      "title": "Ingest it, and open a break",
+      "why": "The break carries the kind the class predicts, a detail naming what disagreed rather than merely that something did, state open, an assigneeId — a break is never unowned, and opens assigned to whoever ingested the statement that found it — and an ageSeconds derived when it is read. All of that is the instance's; this page renders it.",
+      "method": "POST",
+      "path": "/reconciliation-statements",
+      "as": "sam",
+      "bodyFrom": "wrongStatement",
+      "bodyMerge": { "organisationId": "{{organisationId}}" },
+      "expect": [200],
+      "capture": { "breakId": "breaks.0.id", "breakKind": "breaks.0.kind" },
+      "subjects": [
+        { "variable": "breakId", "type": "reconciliation-break", "label": "The break the perturbed statement opened" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "assign-break",
+      "title": "Sam assigns the break to Wei",
+      "why": "Assigning a break is how it becomes investigated: taking it on is one fact, not two. Re-assigning it later would change the owner and not the state, because re-assignment is not a transition.",
+      "method": "POST",
+      "path": "/reconciliation-breaks/{{breakId}}/assignment",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "assigneeId": "{{actor:wei}}"
+      },
+      "expect": [200],
+      "capture": {},
+      "readouts": [
+        {
+          "label": "The break, as it now stands",
+          "why": "State, owner and age, read back from the instance rather than assumed from the response to the assignment.",
+          "method": "GET",
+          "path": "/reconciliation-breaks/{{breakId}}?organisationId={{organisationId}}",
+          "figures": [
+            { "label": "kind", "path": "kind" },
+            { "label": "state", "path": "state" },
+            { "label": "detail", "path": "detail" },
+            { "label": "ageSeconds", "path": "ageSeconds" }
+          ]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "propose-adjustment",
+      "title": "Sam proposes a correction — SGD 1,000.00",
+      "why": "At exactly SGD 1,000.00 the organisation's band applies, so this needs somebody else's agreement. proposed, posted false, and the break still investigating: a proposed adjustment resolves nothing.",
+      "method": "POST",
+      "path": "/reconciliation-breaks/{{breakId}}/adjustments",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "amount": { "currency": "SGD", "minorUnits": 100000 },
+        "direction": "credit",
+        "narrative": "Provisional: the scheme's figure looks wrong"
+      },
+      "expect": [201],
+      "capture": { "adjustmentOne": "id" },
+      "subjects": [
+        { "variable": "adjustmentOne", "type": "reconciliation-adjustment", "label": "The correction that will be refused" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "proposer-approves-own",
+      "title": "Sam tries to approve his own correction — and is refused",
+      "why": "The same control that refused the maker approving her own payment: the same function, the same table, the same refusal vocabulary. There is no second approval mechanism in CloFin. The expected outcome of this step is 403 with errors.reason self-approval, and the prose names the subject — the actor who created this reconciliation adjustment may not approve it.",
+      "method": "POST",
+      "path": "/reconciliation-adjustments/{{adjustmentOne}}/approvals",
+      "as": "sam",
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [403],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "checker-rejects",
+      "title": "Wei refuses it, with a reason",
+      "why": "Not every proposal deserves to post. A refusal whose reason is retained is the difference between a trail that explains a declined correction and one that merely records that somebody declined it — the same rule PR-013 sets for a rejected payment, enforced in the domain and again by a database constraint. The adjustment becomes rejected with no entryId and an empty permittedTransitions: it is terminal, because a refusal that could be taken back would not be a refusal. The break returns to nothing, because proposing never moved it.",
+      "method": "POST",
+      "path": "/reconciliation-adjustments/{{adjustmentOne}}/approvals",
+      "as": "wei",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "decision": "rejected",
+        "reason": "The statement is right; our posting is the one to investigate"
+      },
+      "expect": [201],
+      "capture": {},
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT, after the refusal",
+          "why": "Unchanged. A refused correction moves no money, and this is read from the instance rather than asserted.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "The break, after the refusal",
+          "why": "Still investigating. A refused correction blocks nothing and resolves nothing.",
+          "method": "GET",
+          "path": "/reconciliation-breaks/{{breakId}}?organisationId={{organisationId}}",
+          "figures": [{ "label": "state", "path": "state" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "propose-again",
+      "title": "Sam proposes a different correction against the same break",
+      "why": "A refused correction blocks nothing: the one-posted-adjustment-per-break index is partial on posted, so a rejected row sits outside it. This is the second proposal, on its own merits.",
+      "method": "POST",
+      "path": "/reconciliation-breaks/{{breakId}}/adjustments",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "amount": { "currency": "SGD", "minorUnits": 100000 },
+        "direction": "credit",
+        "narrative": "Agreed after investigation: parked in suspense pending the scheme's correction"
+      },
+      "expect": [201],
+      "capture": { "adjustmentTwo": "id" },
+      "subjects": [
+        { "variable": "adjustmentTwo", "type": "reconciliation-adjustment", "label": "The correction that will post" }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "first-approval",
+      "title": "Wei agrees — one of the approvals this needs",
+      "why": "The organisation's band at SGD 1,000.00 asks for two. Read approvalsHeld and approvalsRequired in the response: they are the instance's count, and posted is still false. An approved-but-unposted adjustment is not a state that exists, so nothing has moved yet either.",
+      "method": "POST",
+      "path": "/reconciliation-adjustments/{{adjustmentTwo}}/approvals",
+      "as": "wei",
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [201],
+      "capture": {}
+    },
+
+    {
+      "kind": "request",
+      "id": "second-approval",
+      "title": "Nadia agrees — and the books move, in the same transaction",
+      "why": "posted true, the adjustment posted, and the break resolved, all at once. The entry it posted is an ordinary journal entry with two balancing lines, one on 1300-IN-TRANSIT and one on 2200-UNAPPLIED. Nothing was edited: the original entries are untouched and this is a new fact about a new moment.",
+      "method": "POST",
+      "path": "/reconciliation-adjustments/{{adjustmentTwo}}/approvals",
+      "as": "nadia",
+      "body": { "organisationId": "{{organisationId}}" },
+      "expect": [201],
+      "capture": { "postedEntry": "adjustment.entryId" },
+      "subjects": [
+        { "variable": "postedEntry", "type": "journal-entry", "label": "The entry that resolved the break" }
+      ],
+      "readouts": [
+        {
+          "label": "1300-IN-TRANSIT, after the correction posted",
+          "why": "Moved by the adjustment, and read from the instance. The figure is minor units exactly as reported.",
+          "method": "GET",
+          "path": "/accounts/{{accountInTransit}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "2200-UNAPPLIED, after the correction posted",
+          "why": "The other side of the same entry. The account where a difference sits while somebody finds out what it was.",
+          "method": "GET",
+          "path": "/accounts/{{accountUnapplied}}/statement?organisationId={{organisationId}}&from=2020-01-01T00:00:00Z&to=2035-01-01T00:00:00Z",
+          "figures": [{ "label": "closingBalance", "path": "closingBalance" }]
+        },
+        {
+          "label": "The break, now",
+          "why": "resolved, in the same transaction that posted the entry.",
+          "method": "GET",
+          "path": "/reconciliation-breaks/{{breakId}}?organisationId={{organisationId}}",
+          "figures": [{ "label": "state", "path": "state" }]
+        }
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "read-posted-entry",
+      "title": "Read the entry the correction posted",
+      "why": "Two lines, balancing, referencing reconciliation-adjustment. This is what it means for the books to move here: not an edit, but an entry — the same doctrine a correction to a settled payment follows, where the fix is a reversing instruction rather than a change of mind about an old one.",
+      "method": "GET",
+      "path": "/journal-entries/{{postedEntry}}?organisationId={{organisationId}}",
+      "as": "sam",
+      "expect": [200],
+      "capture": {},
+      "subjects": [
+        { "variable": "postedEntry", "type": "journal-entry", "label": "The entry that resolved the break" },
+        { "variable": "breakId", "type": "reconciliation-break", "label": "The break, resolved" }
+      ],
+      "readouts": [
+        {
+          "label": "The entry's own reference and lines",
+          "why": "Projected out of the response beside it. Directions and amounts are the instance's; nothing here is summed.",
+          "method": "GET",
+          "path": "/journal-entries/{{postedEntry}}?organisationId={{organisationId}}",
+          "figures": [
+            { "label": "reference", "path": "reference" },
+            { "label": "narrative", "path": "narrative" },
+            { "label": "lines", "path": "lines" }
+          ]
+        }
+      ]
+    }
+  ]
+}

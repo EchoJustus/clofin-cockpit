@@ -34,9 +34,11 @@
  * about which instances exist — they are changed by the same two functions.
  */
 
+import { clearActing } from "./acting.js";
 import { forgetCredentials } from "./credentials.js";
 import { connectOrigin, disconnectOrigin } from "./net.js";
 import { decideInstanceUrl } from "./origins.js";
+import { forgetWorkspace } from "./workspace.js";
 
 /** One remembered instance. Two fields, and there is no third. */
 export interface RegistryEntry {
@@ -168,16 +170,22 @@ export function connect(entry: RegistryEntry): readonly RegistryEntry[] {
 }
 
 /**
- * Forget an instance: the entry, the permission and the credentials, together.
+ * Forget an instance: the entry, the permission, the credentials, whoever was
+ * acting, and everything its runs learned — together.
  *
- * One function, because three separate ones would eventually be called in
- * twos.
+ * One function, because five separate ones would eventually be called in fours.
+ * The list grew in phase 3 and the reason it is still one call is the reason it
+ * was one call in phase 2: "forget this instance" has to mean it, and a session
+ * that kept the ids of an instance the operator had dismissed would be holding
+ * credentials nobody thought they still had.
  */
 export function forget(baseUrl: string): readonly RegistryEntry[] {
   const decision = decideInstanceUrl(baseUrl);
   if (decision.kind === "accepted") {
     disconnectOrigin(decision.origin);
     forgetCredentials(decision.origin);
+    clearActing(decision.origin);
+    forgetWorkspace(decision.origin);
   }
   const next = entries().filter((entry) => entry.baseUrl !== baseUrl);
   write(next);

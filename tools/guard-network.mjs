@@ -120,6 +120,45 @@ const FORBIDDEN_PATTERNS = [
   ],
 ];
 
+/**
+ * The only module allowed to turn a response into a figure.
+ *
+ * Phase 3 puts balances on the screen, which is the point at which "the cockpit
+ * computes no figure" stops being a sentence in a README and starts needing an
+ * enforcement. `js/figures.js` reads a value out of a response body at a path
+ * and re-serialises it; it contains no arithmetic, and the rules below are what
+ * keep that true of the whole built site.
+ */
+const FIGURES_MODULE = "js/figures.js";
+
+/**
+ * Identifiers that name money, and must never stand next to an arithmetic
+ * operator anywhere in the output.
+ *
+ * `minorUnits + minorUnits` is the defect this exists to catch, and so is
+ * `minorUnits / 100` — the innocent-looking one that turns 375000 into a
+ * prettier 3750.00 that nobody sent. The rule is blunt in the shape ADR-0002
+ * chose for the UUID rule: there is no legitimate reason for this repository to
+ * do arithmetic on a money value, so "never" has no exceptions to argue about,
+ * and a future increment that needs one will have to change this file visibly.
+ */
+const MONEY_IDENTIFIERS = ["minorUnits", "closingBalance", "openingBalance", "amountMinor"];
+
+/**
+ * Number formatters, refused everywhere including inside the figures module.
+ *
+ * A formatter is arithmetic wearing a presentation hat: `toFixed(2)` on minor
+ * units is a division, and `Intl.NumberFormat` additionally decides a thousands
+ * separator and a currency symbol on the reader's behalf. This page prints what
+ * the instance sent.
+ */
+const FORMATTER_PATTERNS = [
+  [/\btoFixed\s*\(/, "toFixed — formatting a number is arithmetic this page does not do"],
+  [/\btoLocaleString\s*\(/, "toLocaleString — the same, with a locale's opinion added"],
+  [/\bIntl\s*\.\s*NumberFormat\b/, "Intl.NumberFormat"],
+  [/\bparseFloat\s*\(/, "parseFloat — money is never a float, here least of all"],
+];
+
 /** Subresource attributes: things the browser loads without being asked twice. */
 const SUBRESOURCE_ATTRIBUTES = {
   script: "src",
@@ -243,6 +282,27 @@ export async function guardNetwork(siteDir) {
       if (pattern.test(file.text)) problems.push(`${file.name}: contains ${description}.`);
     }
 
+    // 3a. Nothing that contradicts "the cockpit computes no figure".
+    for (const [pattern, description] of FORMATTER_PATTERNS) {
+      if (pattern.test(file.text)) problems.push(`${file.name}: contains ${description}.`);
+    }
+    for (const identifier of MONEY_IDENTIFIERS) {
+      // Either side of the operator, because `total = a + minorUnits` and
+      // `minorUnits / 100` are the same defect written two ways. The colon of
+      // a JSON member is deliberately not an operator, so a profile document
+      // declaring `"minorUnits": 50000` is untouched — a number the profile
+      // *sends* is not a figure this page derived.
+      const adjacency = new RegExp(
+        `\\b${identifier}\\b\\s*[-+*/%]|[-+*/%]\\s*\\b${identifier}\\b`,
+      );
+      if (adjacency.test(file.text)) {
+        problems.push(
+          `${file.name}: performs arithmetic on ${identifier}. Every figure on screen is a ` +
+            `value the instance sent, projected by ${FIGURES_MODULE}; see docs/ADR/0003.`,
+        );
+      }
+    }
+
     // 4. No absolute URL to an unexpected host, anywhere.
     for (const match of file.text.matchAll(/https?:\/\/([A-Za-z0-9._-]+)/g)) {
       const host = match[1].toLowerCase();
@@ -253,6 +313,31 @@ export async function guardNetwork(siteDir) {
         );
       }
     }
+  }
+
+  // 4a. The figures module has to be in the output at all.
+  //
+  // This guard deliberately stops there. What the module *does* — that the text
+  // of a figure is the response's own value and not a derivation of it — is not
+  // something a regular expression over a file can establish, and a check that
+  // pretended to would be the shape standing lesson L-6 records: a rule stated
+  // over a part of the problem, passing because the part it looks at is clean.
+  // An earlier draft of this guard asserted that the module still mentioned the
+  // serialiser, and it was satisfied by a *comment* mentioning it — which is
+  // precisely the failure, found by running the negative control rather than by
+  // reading the rule.
+  //
+  // The property itself is asserted by `figures.test.ts`, which reads a figure
+  // out of a recorded response body and requires its text to appear verbatim in
+  // that body. `npm run build` runs the tests before it builds, so a module that
+  // started deriving rather than projecting stops the build there — earlier than
+  // here, and with a better message.
+  if (!files.some((file) => file.name === FIGURES_MODULE)) {
+    problems.push(
+      `${FIGURES_MODULE} is not in the built output. It is the only path by which a figure ` +
+        "reaches the screen, so a site without it is a site whose figures came from somewhere " +
+        "neither this guard nor figures.test.ts has checked.",
+    );
   }
 
   // 5. Every page carries the exact policy, and loads nothing from elsewhere.

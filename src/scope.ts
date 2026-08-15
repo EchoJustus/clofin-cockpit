@@ -37,11 +37,28 @@ export const SCOPE_STATEMENT: string =
  * this sentence is the cockpit's own and describes only the cockpit. It makes
  * no claim about what any CloFin control guarantees — that is RULE 3's
  * territory, and RULE 3 says such sentences are quotations.
+ *
+ * **It is edited when the cockpit changes, and phase 3 changed it twice over.**
+ * The phase 1 wording ended "It computes nothing about payments, and it stores
+ * nothing." The second half stopped being true in phase 2, when the instance
+ * registry began storing base URLs and labels, and the first half needed
+ * sharpening in phase 3, when these screens started showing balances: "computes
+ * nothing" is the right claim and it now has an enforcement behind it
+ * (`figures.ts`, and the build guard's refusal of arithmetic on a money value).
+ * The phrase "generates commands you run yourself" was also no longer the whole
+ * story once the cockpit began driving an instance directly.
+ *
+ * A frame sentence that has quietly drifted out of true is worse than no frame
+ * sentence, because it is the part of the page a reader is invited to rely on.
+ * Correcting it is not a style change and does not wait for a later increment.
  */
 export const COCKPIT_ROLE: string =
   "This cockpit owns no truth. It is a client: it reads the CloFin project's " +
-  "published releases and generates commands you run yourself. It computes " +
-  "nothing about payments, and it stores nothing.";
+  "published releases, and drives an instance you started yourself, showing " +
+  "every request it sends and every response it gets back. It performs no " +
+  "outcome and computes no figure — every status and balance on these screens " +
+  "is a value the instance returned. The only thing it stores is the list of " +
+  "instance addresses you connect to.";
 
 /** Where the quoted statement comes from, shown beside it so it can be checked. */
 export const SCOPE_SOURCE = {
