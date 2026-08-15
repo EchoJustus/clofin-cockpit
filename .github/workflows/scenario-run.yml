@@ -1,0 +1,294 @@
+name: Scenario run
+
+# A scenario, run against a named `clofin-core` commit, with the whole of what
+# happened written into this job's summary.
+#
+# ## This is not a third check
+#
+# `ci.yml` carries this repository's two checks and there are still two. This
+# workflow runs **only when a person dispatches it** — no push trigger, no pull
+# request trigger and deliberately no schedule. A scenario run writes to a
+# database, plays a simulated scheme and produces evidence somebody is going to
+# quote; a cron job doing that against a tag nobody asked about proves nothing
+# new and burns minutes. It is a tool you pick up, like `pages.yml` is a
+# deployment rather than a guarantee.
+#
+# ## What it does, in order
+#
+# 1. Checks out this repository, and `clofin-core` **at the ref you name**.
+# 2. Resolves that ref to a full commit id and echoes it. Every claim this run
+#    makes is about that commit.
+# 3. Starts PostgreSQL and the service — `make up`, which is `clofin-core`'s own
+#    composed stack, falling back to the 012/013 shape (compose the database,
+#    run the service from the same checkout) if the image will not build here.
+#    **Which one happened is stated in the summary either way.**
+# 4. Runs the scenario through the cockpit's own runner, headlessly.
+# 5. Writes the evidence into `$GITHUB_STEP_SUMMARY`, which GitHub serves to
+#    anybody with the link, with no credential, for a public repository.
+#
+# ## The frozen core
+#
+# `clofin-core` is **checked out, read and run — never edited**. Its release
+# audit is the reason: this repository may drive the audit subject and may not
+# change it. The job holds `contents: read` and nothing else, both checkouts
+# discard their credentials (`persist-credentials: false`), and there is no
+# step here that commits, pushes, tags, comments or opens anything. If a
+# scenario needs a `clofin-core` change to run, that is an objection to file,
+# not a patch to apply in a workflow.
+#
+# ## What it fetches
+#
+# GitHub — this repository, `clofin-core`, and the public API for the release
+# body that carries a tag's release-audit coverage — and the toolchain
+# registries the two builds already use: npm for the cockpit's three
+# development packages, Docker Hub and Maven Central for `clofin-core`'s own
+# image. Nothing else. Every action is pinned to a commit id rather than to a
+# tag, because a tag moves and a pinned commit is the same code every time this
+# is dispatched.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "clofin-core tag or commit to run against (a ref-<n> tag carries its release-audit coverage)"
+        required: true
+        default: "ref-1"
+        type: string
+      scenario:
+        description: "Which flow to run. Everything it depends on is run first, in order."
+        required: true
+        default: "scheme-play"
+        type: choice
+        options:
+          - payment-maker-checker
+          - scheme-play
+          - reconciliation
+      seed:
+        description: "Which seed profile bootstraps the instance"
+        required: true
+        default: "uat-standard"
+        type: choice
+        options:
+          - uat-standard
+          - high-value-two-approver
+
+# Read, and nothing else. See "The frozen core" above.
+permissions:
+  contents: read
+
+jobs:
+  scenario:
+    name: Run a scenario and publish what happened
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the cockpit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: cockpit
+          persist-credentials: false
+
+      # Read-only, at exactly the ref that was asked for. Nothing in this job
+      # writes to this checkout, and it carries no credential to push with.
+      - name: Check out clofin-core at the requested ref
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: EchoJustus/clofin-core
+          ref: ${{ inputs.ref }}
+          path: core
+          persist-credentials: false
+
+      - name: Resolve the ref to a commit
+        id: commit
+        run: |
+          set -euo pipefail
+          sha="$(git -C core rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "clofin-core is at $sha"
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cockpit/package-lock.json
+
+      - name: Install the cockpit's toolchain
+        working-directory: cockpit
+        run: npm ci
+
+      # The same modules the browser loads, compiled for node. The site build is
+      # a different tsconfig and does not include this entry point — see
+      # tsconfig.headless.json.
+      - name: Compile the headless runner
+        working-directory: cockpit
+        run: npx tsc --project tsconfig.headless.json
+
+      # `make up` is clofin-core's own way to start: PostgreSQL 16 plus the
+      # service image built from infra/Dockerfile. 013-REQ recorded that image
+      # failing to build in one sandbox, whose egress proxy the JVM did not
+      # trust — so this falls back to the shape that increment used instead:
+      # compose the database, and run the service from the same checkout, in
+      # clofin-core's own declared toolchain image. Both paths use that
+      # repository's own compose file and its own environment; neither edits it.
+      - name: Start clofin-core against a real PostgreSQL
+        id: boot
+        working-directory: core
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          set -uo pipefail
+
+          ready() {
+            for _ in $(seq 1 60); do
+              if curl -fsS http://localhost:8080/readyz >/dev/null 2>&1; then return 0; fi
+              sleep 2
+            done
+            return 1
+          }
+
+          method=""
+          if make up CLOFIN_SOURCE_COMMIT="$SHA" && ready; then
+            method="\`make up\` — clofin-core's own composed stack: PostgreSQL 16 and the service image built from its infra/Dockerfile, in this job, at the commit above."
+          else
+            echo "::notice::make up did not produce a ready service; falling back to the 012/013 host-run shape."
+            docker compose stop app >/dev/null 2>&1 || true
+            docker compose rm -f app >/dev/null 2>&1 || true
+
+            set -e
+            make db-up
+            docker compose --profile tools run --detach --name clofin-scenario-app \
+              --publish 8080:8080 \
+              --env CLOFIN_ENV=dev \
+              --env CLOFIN_HTTP_HOST=0.0.0.0 \
+              --env CLOFIN_HTTP_PORT=8080 \
+              --env CLOFIN_MIGRATE_ON_START=true \
+              --env CLOFIN_SOURCE_COMMIT="$SHA" \
+              toolchain clojure -M:run
+            set +e
+
+            if ready; then
+              method="the 012/013 fallback — \`make up\`'s image would not build on this runner, so PostgreSQL was composed from clofin-core's own docker-compose.yml (\`make db-up\`) and the service was run from the same checkout in that file's own toolchain image. Same code, same migrations, same configuration; a different process."
+            else
+              echo "::error::clofin-core did not become ready on either path."
+              docker compose ps
+              docker compose logs --tail 200
+              docker logs clofin-scenario-app --tail 200 2>/dev/null || true
+              exit 1
+            fi
+          fi
+
+          echo "boot-method=$method" >> "$GITHUB_OUTPUT"
+          echo "$method"
+          curl -fsS http://localhost:8080/readyz && echo
+          # The database client the runner pipes a manual step's SQL into. It is
+          # clofin-core's own composed PostgreSQL, addressed through its own
+          # compose file, and it reads the credentials from the container's
+          # environment exactly as `make db-shell` does.
+          printf 'psql=%s\n' \
+            "[\"docker\",\"compose\",\"-f\",\"$GITHUB_WORKSPACE/core/docker-compose.yml\",\"exec\",\"-T\",\"postgres\",\"sh\",\"-c\",\"psql -v ON_ERROR_STOP=1 -U \\\"\$POSTGRES_USER\\\" -d \\\"\$POSTGRES_DB\\\"\"]" \
+            >> "$GITHUB_OUTPUT"
+
+      # The coverage line in the summary is read out of the release body by the
+      # cockpit's own modules. Getting the body is a transport question, and it
+      # is asked **without any credential first** — the way the published page
+      # asks — because that is the answer worth having. A hosted runner shares
+      # its address, and GitHub's unauthenticated allowance is per address, so
+      # the fallback exists for somebody else's traffic rather than for this
+      # repository's convenience. Which one answered is printed in the summary.
+      - name: Read clofin-core's published releases
+        id: releases
+        env:
+          GH_API: https://api.github.com/repos/EchoJustus/clofin-core
+          TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          releases="$RUNNER_TEMP/releases.json"
+          tags="$RUNNER_TEMP/tags.json"
+
+          anon() {
+            curl -sS -o "$2" -w '%{http_code}' -H 'Accept: application/vnd.github+json' "$1" || echo 000
+          }
+
+          r_status="$(anon "$GH_API/releases?per_page=100" "$releases")"
+          t_status="$(anon "$GH_API/tags?per_page=100" "$tags")"
+          echo "anonymous: releases $r_status, tags $t_status"
+
+          if [ "$r_status" = "200" ] && [ "$t_status" = "200" ]; then
+            source="asked of the public GitHub API by this job with no credential at all, exactly as the published page asks; both endpoints answered 200"
+          else
+            echo "::notice::the unauthenticated read answered releases $r_status, tags $t_status; re-asking with this job's own token."
+            curl -sS -f -o "$releases" -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $TOKEN" "$GH_API/releases?per_page=100"
+            curl -sS -f -o "$tags" -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $TOKEN" "$GH_API/tags?per_page=100"
+            source="asked with no credential first — the public API answered releases $r_status and tags $t_status, which is the shared unauthenticated allowance of this runner's address rather than anything about clofin-core — and then re-asked with the automatic token this job is given, which exists for the life of this run and is not part of the published site. The body it returned is the same published release body either way, and it is parsed here by the same module the page uses"
+          fi
+
+          echo "releases=$releases" >> "$GITHUB_OUTPUT"
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "source=$source" >> "$GITHUB_OUTPUT"
+
+      - name: Run the scenario and write the evidence
+        working-directory: cockpit
+        env:
+          BASE_URL: http://localhost:8080
+          REF: ${{ inputs.ref }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          SEED: ${{ inputs.seed }}
+          SCENARIO: ${{ inputs.scenario }}
+          BOOT_METHOD: ${{ steps.boot.outputs.boot-method }}
+          PSQL: ${{ steps.boot.outputs.psql }}
+          RELEASES: ${{ steps.releases.outputs.releases }}
+          TAGS: ${{ steps.releases.outputs.tags }}
+          RELEASES_SOURCE: ${{ steps.releases.outputs.source }}
+        run: |
+          set -euo pipefail
+
+          # Only the scheme play asks the operator anything, so it is the only
+          # document with a playbook — and every scenario that runs it on the
+          # way to somewhere else needs that playbook too. A mistake here is not
+          # silent: the runner refuses a playbook naming a document the run will
+          # not execute, and it stops at any choice the playbook does not answer.
+          case "$SCENARIO" in
+            scheme-play|reconciliation) playbook="playbooks/scheme-play.playbook.json" ;;
+            *)                          playbook="" ;;
+          esac
+
+          set -- \
+            --base-url "$BASE_URL" \
+            --ref "$REF" \
+            --sha "$SHA" \
+            --seed "$SEED" \
+            --scenario "$SCENARIO" \
+            --boot-method "$BOOT_METHOD" \
+            --psql "$PSQL" \
+            --releases "$RELEASES" \
+            --tags "$TAGS" \
+            --releases-source "$RELEASES_SOURCE" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          if [ -n "$playbook" ]; then
+            set -- "$@" --playbook "$playbook"
+          fi
+
+          node tmp/headless/headless/run.js "$@"
+
+      # A failed run's most useful artifact after the summary is what the
+      # service said. Printed into the job log, which a public repository serves
+      # to a reader alongside the summary.
+      - name: What the stack said
+        if: always()
+        working-directory: core
+        run: |
+          docker compose ps || true
+          docker compose logs --tail 300 || true
+          docker logs clofin-scenario-app --tail 300 2>/dev/null || true
+
+      - name: Stop the stack
+        if: always()
+        working-directory: core
+        run: |
+          docker rm -f clofin-scenario-app >/dev/null 2>&1 || true
+          make destroy || true

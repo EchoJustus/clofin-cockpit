@@ -34,6 +34,7 @@ import {
   canContinue,
   currentStep,
   runSummary,
+  STATUS_WORDS,
   type ReadoutResult,
   type Run,
   type StepOutcome,
@@ -177,15 +178,6 @@ function readoutsView(readouts: readonly ReadoutResult[]): HTMLElement | null {
 // ---------------------------------------------------------------------------
 // Steps
 // ---------------------------------------------------------------------------
-
-const STATUS_WORDS: Readonly<Record<StepOutcome["status"], string>> = {
-  pending: "not started",
-  running: "running",
-  done: "done",
-  "already-present": "already present",
-  "awaiting-operator": "waiting for you",
-  failed: "failed",
-};
 
 function subjectsView(
   subjects: readonly Subject[],

@@ -1128,3 +1128,36 @@ h3 {
   font-size: 0.78rem;
   color: #5a6b76;
 }
+
+/* ---------------------------------------------------------------------------
+   Batch runs
+
+   A claim and the thing that keeps it, side by side. The pairing is the point:
+   every promise on that page names its enforcement, so the layout puts them in
+   one block rather than in a list of assurances followed by a list of
+   mechanisms nobody joins up.
+   --------------------------------------------------------------------------- */
+
+.rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.rules__item {
+  border-left: 3px solid #cfd8de;
+  padding-left: 0.9rem;
+}
+
+.rules__claim {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+}
+
+.rules__kept {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #5a6b76;
+}

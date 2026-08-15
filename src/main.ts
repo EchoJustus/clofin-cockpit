@@ -21,13 +21,14 @@
  * That check cannot pass by accident: the frame is emitted at build time and
  * the only element this file ever rewrites is `<main id="view">`.
  *
- * **2. Route.** Four views, addressed by hash so that GitHub Pages needs no
+ * **2. Route.** Five views, addressed by hash so that GitHub Pages needs no
  * server-side rewrite and a deep link survives a reload:
  *
  *     #/releases                       the release list
  *     #/releases/ref-1                 one release and its deployment card
  *     #/instances                      remembered instances, and connecting
  *     #/instances/<encoded base URL>   one connected instance, and its bootstrap
+ *     #/batch-runs                     the scenario runner, and recent runs
  *
  * State lives here, in module bindings, for the life of the page. Nothing is
  * persisted except the instance registry (`registry.ts`), and nothing is
@@ -59,6 +60,7 @@ import {
 } from "./profiles.js";
 import * as registry from "./registry.js";
 import { fetchReleaseRecords, type ReleaseRecord } from "./releases.js";
+import { fetchScenarioRuns, type RunsResult } from "./runs.js";
 import { SCOPE_STATEMENT } from "./scope.js";
 import { forgetWorkspace, type Subject } from "./workspace.js";
 import {
@@ -75,6 +77,7 @@ import {
   refusedInstanceView,
   type InstanceActions,
 } from "./views-instance.js";
+import { batchRunsView } from "./views-batch.js";
 
 /** Thrown when the page can no longer be trusted to be showing its own scope. */
 class FrameDamaged extends Error {}
@@ -113,7 +116,7 @@ function assertFrameIntact(): void {
 }
 
 interface Route {
-  readonly name: "releases" | "release" | "instances" | "instance";
+  readonly name: "releases" | "release" | "instances" | "instance" | "batch-runs";
   readonly key: string | null;
 }
 
@@ -124,6 +127,7 @@ function currentRoute(): Route {
   const instance = /^instances\/(.+)$/.exec(hash);
   if (instance?.[1]) return { name: "instance", key: decodeURIComponent(instance[1]) };
   if (hash.startsWith("instances")) return { name: "instances", key: null };
+  if (hash.startsWith("batch-runs")) return { name: "batch-runs", key: null };
   return { name: "releases", key: null };
 }
 
@@ -140,6 +144,8 @@ const state: {
   runRefusal: string | null;
   evidence: EvidenceResult | null;
   evidenceRefusal: string | null;
+  /** Recent scenario runs, or the reason there is no list. Null while unasked. */
+  batchRuns: RunsResult | null;
 } = {
   records: null,
   releaseFailure: null,
@@ -152,6 +158,7 @@ const state: {
   runRefusal: null,
   evidence: null,
   evidenceRefusal: null,
+  batchRuns: null,
 };
 
 function navigation(active: Route["name"]): HTMLElement {
@@ -160,6 +167,7 @@ function navigation(active: Route["name"]): HTMLElement {
   return el("nav", { class: "nav" }, [
     link("#/releases", "Releases", active === "releases" || active === "release"),
     link("#/instances", "Instances", active === "instances" || active === "instance"),
+    link("#/batch-runs", "Batch runs", active === "batch-runs"),
   ]);
 }
 
@@ -217,6 +225,21 @@ async function openInstance(baseUrl: string, label: string | null): Promise<void
     if (!remembered) registry.forget(decision.baseUrl);
   }
   state.entries = registry.entries();
+  render();
+}
+
+/**
+ * Ask the public API for this repository's recent scenario runs.
+ *
+ * Asked once, when the batch-runs view is first opened, rather than at
+ * start-up: a reader on the releases tab has not asked for it, and the
+ * unauthenticated allowance is small enough that spending it on a page nobody
+ * opened is a poor trade. `fetchScenarioRuns` never throws — an answer that is
+ * not a list becomes a reason the page renders.
+ */
+async function loadBatchRuns(): Promise<void> {
+  if (state.batchRuns !== null) return;
+  state.batchRuns = await fetchScenarioRuns();
   render();
 }
 
@@ -460,7 +483,9 @@ function render(): void {
     navigation(route.name),
     route.name === "releases" || route.name === "release"
       ? releaseBody(route)
-      : instanceBody(route),
+      : route.name === "batch-runs"
+        ? batchRunsView(state.batchRuns)
+        : instanceBody(route),
   );
 
   // Again afterwards: the render above must not have been able to touch the
@@ -478,6 +503,7 @@ function onHashChange(): void {
     return;
   }
   render();
+  if (route.name === "batch-runs") void loadBatchRuns();
 }
 
 async function start(): Promise<void> {
@@ -500,6 +526,7 @@ async function start(): Promise<void> {
   }
 
   render();
+  if (route.name === "batch-runs") await loadBatchRuns();
   if (deepLink) await deepLink;
 }
 

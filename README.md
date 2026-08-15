@@ -12,6 +12,13 @@ quotation from that repository's audited documents.
 
 ## Status
 
+**Phase 4 is built: the same walk now runs as a batch.** A `workflow_dispatch`
+in this repository checks `clofin-core` out at a tag or commit you name, starts
+it against a real PostgreSQL, executes a scenario end to end **through this
+cockpit's own runner**, and writes every step — the actor, the raw status, and
+every figure in minor units — into the run's job summary, which GitHub serves to
+anybody with the link and no credential.
+
 **Phase 3 is built: the cockpit walks the whole product against a live instance
 — a payment refused to its own creator, the simulated scheme played by hand,
 reconciliation through a rejected correction to a posted entry, and every
@@ -28,6 +35,38 @@ a **default-closed** CORS allowlist and a self-reported `sourceCommit` on
 `GET /`. An instance sends no CORS header at all unless its operator names an
 origin, so connecting to one means setting `CLOFIN_CORS_ALLOWED_ORIGINS` on it
 first.
+
+**What phase 4 added:**
+
+- **A scenario, run as a batch, against any tag.** `Actions → Scenario run`
+  takes three inputs — the `clofin-core` ref, which scenario, which seed
+  profile — checks that ref out **read-only**, resolves it to a full commit,
+  starts the stack (`make up`, with the 012/013 host-run fallback if the image
+  will not build, stated either way), and runs everything the scenario depends
+  on in order.
+- **The same runner, headlessly.** The batch entry point drives
+  [`src/bootstrap.ts`](src/bootstrap.ts) — the same reader, the same four-state
+  vocabulary, the same actor gate, the same figures module. There is no second
+  engine. Two differences are declared and recorded in
+  [`docs/ADR/0004`](docs/ADR/0004-the-headless-entry-two-declared-differences-and-a-playbook-that-cannot-invent-an-answer.md):
+  the workflow runs a manual step's SQL itself and **still confirms it through
+  the API**, and choices are answered from a versioned playbook.
+- **A playbook, and the answer it will not invent.** Every choice a batch run
+  makes is declared beforehand in [`playbooks/`](playbooks) with the reason,
+  and the summary renders each as *declared → performed → what the instance
+  answered*. **A choice the playbook does not answer stops the run**, in the
+  same `waiting for you` state you would see on screen, and fails the job naming
+  the step. There is still no auto-play in the browser: the playbook is a batch
+  construct and is not even served beside the page.
+- **The evidence is the summary.** It opens with the scope statement and the
+  resolved 40-character commit, carries that tag's release-audit coverage read
+  from the release body, and prints every step's actor, raw status and figures
+  in **verbatim minor units** — which the run then re-checks against the bodies
+  they came from, failing the job if one does not appear there.
+- **A batch-runs page**, describing all of that, linking to the workflow on
+  github.com — dispatching is a github.com action, because this cockpit holds no
+  token — and listing recent runs from an anonymous read, or saying what GitHub
+  answered instead. It never asks for a token.
 
 **What phase 3 added:**
 
@@ -138,6 +177,10 @@ GitHub Pages — no server, no telemetry, no analytics, no third-party CDN:
   records phase 3: one runner rather than two, the acting-actor invariant, the
   `choice` step and why there is no macro, and how "computes no figure" is
   enforced rather than promised.
+  **[`docs/ADR/0004`](docs/ADR/0004-the-headless-entry-two-declared-differences-and-a-playbook-that-cannot-invent-an-answer.md)**
+  records phase 4: the headless entry driving that same runner, the two declared
+  differences and their reasons, and why a playbook that does not answer a
+  choice stops the run rather than picking one.
 
 **What this page stores.** One thing: the base URLs and labels of instances you
 have connected, so you do not retype them. Nothing else — and the build refuses
@@ -152,8 +195,11 @@ machine, or a GitHub Codespace's forwarded port — are one constant in
 what the code refuses.
 
 **What is still gated.** The Codespaces driver and any handling of a GitHub
-token, and the Actions scenario runner, are later phases. Rule 3 below stays
-forward-tensed until one of them arrives.
+token are later phases. The Actions scenario runner arrived in phase 4 and
+**handles no token either**: dispatching a run is something you do on
+github.com, signed in as yourself, and reading a run's results uses only what a
+public repository serves anonymously — its job summary, which is where a run
+writes everything. Rule 3 below therefore stays forward-tensed.
 
 **What the flows cannot show, and say so.** Every flow carries its own list, on
 screen, before it is run. Two are worth naming here. A retried submission's
@@ -191,9 +237,11 @@ what the system answered.
   from the release itself, never typed.
 - **Deploy** — one-click provisioning of a reference instance from a tagged
   release: locally via Docker Compose, interactively via GitHub Codespaces, or
-  as a scripted batch run on a GitHub Actions runner (which has no inbound
-  network, so it runs scenarios and uploads their output rather than hosting a
-  session — stated here because the interface will state it too).
+  as a scripted batch run on a GitHub Actions runner. The batch form is
+  **built**: a runner has no inbound network, so it runs a scenario and
+  publishes the evidence rather than hosting a session — into the job summary,
+  which is served without a credential, rather than into an artifact, which is
+  not.
 - **Accounts** — bootstrap of a synthetic organisation: actors and roles, a
   chart of ledger accounts, per-currency approval thresholds, from versioned
   seed profiles in this repository. **Built** — and it is not one click: it is

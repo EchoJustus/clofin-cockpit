@@ -1,11 +1,15 @@
 {
   "//": [
-    "The test build. Compiles src and test together into tmp/test, which",
-    "`node --test` then runs. Separate from tsconfig.json because the site",
+    "The test build. Compiles src, headless and test together into tmp/test,",
+    "which `node --test` then runs. Separate from tsconfig.json because the site",
     "output must contain the application and nothing else — a test helper",
     "shipped to the browser is a dependency nobody decided to take.",
     "The directory is not dot-prefixed on purpose: node's test runner skips",
-    "hidden directories, so `node --test .tmp/test` silently finds nothing."
+    "hidden directories, so `node --test .tmp/test` silently finds nothing.",
+    "",
+    "`headless/` is here so the batch runner is type-checked and tested by the",
+    "same `npm test` as everything else. It is emitted for running by",
+    "tsconfig.headless.json instead; this build only has to compile it."
   ],
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -13,5 +17,5 @@
     "outDir": "tmp/test",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "headless/**/*.ts", "test/**/*.ts"]
 }
