@@ -1,0 +1,64 @@
+name: Publish to GitHub Pages
+
+# Deployment, kept separate from `ci.yml` on purpose, and running on `main`
+# only — a branch build must never be able to publish.
+#
+# This workflow needs the repository's Pages source to be set to **GitHub
+# Actions** (Settings → Pages). Until an operator sets it, this workflow fails
+# and `ci.yml` — which builds the site and runs both checks — still passes, so
+# a missing repository setting never looks like a broken build.
+#
+# Both checks run again here, against the artifact that is about to be
+# published rather than against one built earlier in another job. A check that
+# passed on a different build of the same commit has not checked what is being
+# deployed.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, check and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install the toolchain
+        run: npm ci
+
+      - name: Build the site
+        run: npm run build
+
+      - name: scope-verbatim
+        run: npm run check:scope-verbatim
+
+      - name: no-unqualified-audited
+        run: npm run check:no-unqualified-audited
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

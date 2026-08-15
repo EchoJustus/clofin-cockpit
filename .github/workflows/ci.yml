@@ -1,0 +1,54 @@
+name: Build and check
+
+# Exactly two automated checks run here, and there are deliberately no others.
+#
+# `clofin-cockpit` owns no truth: it reads `clofin-core`'s published releases
+# and generates text you run yourself. A third guarantee asserted from this
+# repository would be one it is not entitled to make. `clofin-trace` carries
+# exactly two for the same reason — see ADR-0020 and ADR-0026 in clofin-core.
+#
+# The build is not a third check, and neither is the test suite it runs. Both
+# are preconditions: `npm run build` type-checks, runs the unit tests, emits the
+# site, and then refuses to finish if `tools/guard-network.mjs` finds that the
+# output could reach a second origin, carry a credential or submit anything
+# (AC-6 — enforced by the build refusing, not by a check reporting).
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-check:
+    name: Build the cockpit and check it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json pins: three packages,
+      # none of them at runtime. See docs/ADR/0001.
+      - name: Install the toolchain
+        run: npm ci
+
+      - name: Build the site
+        run: npm run build
+
+      - name: scope-verbatim
+        run: npm run check:scope-verbatim
+
+      - name: no-unqualified-audited
+        run: npm run check:no-unqualified-audited
