@@ -433,13 +433,19 @@ function stepView(outcome: StepOutcome, index: number, actions: InstanceActions)
             });
             return copy;
           })(),
-          (() => {
-            const confirm = el("button", { type: "button", class: "copy" }, [
-              "I have run them — ask the instance",
-            ]);
-            confirm.addEventListener("click", () => actions.confirmManualStep());
-            return confirm;
-          })(),
+          // Only while this step is the one waiting. A confirmed step keeps its
+          // statements on screen — they are what happened — but offering the
+          // button again would invite a click that either does nothing or asks
+          // about a different step.
+          outcome.status === "awaiting-operator"
+            ? (() => {
+                const confirm = el("button", { type: "button", class: "copy" }, [
+                  "I have run them — ask the instance",
+                ]);
+                confirm.addEventListener("click", () => actions.confirmManualStep());
+                return confirm;
+              })()
+            : null,
         ])
       : null,
 

@@ -40,7 +40,7 @@ import { forgetCredentials } from "./credentials.js";
 import { el, replaceChildren, require$ } from "./dom.js";
 import { PROVENANCE_MARKER, SCOPE_MARKER, VIEW_ROOT_ID } from "./frame.js";
 import { connectToInstance, type ConnectionResult } from "./instance.js";
-import { getOwnJson } from "./net.js";
+import { disconnectOrigin, getOwnJson } from "./net.js";
 import { decideInstanceUrl } from "./origins.js";
 import { PROFILE_DIRECTORY, PROFILE_IDS, readProfile, type Profile } from "./profiles.js";
 import * as registry from "./registry.js";
@@ -148,16 +148,15 @@ async function openInstance(baseUrl: string, label: string | null): Promise<void
     return;
   }
 
+  // A label of `null` means "selected from the list": keep whatever the
+  // operator called it rather than blanking it.
+  const remembered = registry.entries().find((entry) => entry.baseUrl === decision.baseUrl) ?? null;
+  const entry = { baseUrl: decision.baseUrl, label: label ?? remembered?.label ?? "" };
+
   // Permit the origin for the duration of the attempt, so `net.ts` will make
-  // the two requests the honesty gate is built on. The registry entry is only
-  // written if the instance passes that gate — an address that turned out not
-  // to identify itself is not one this page keeps permission to contact.
-  registry.connect({ baseUrl: decision.baseUrl, label: label ?? "" });
-  if (label === null) {
-    // Selected from the list: keep whatever label was already stored.
-    const existing = registry.entries().find((entry) => entry.baseUrl === decision.baseUrl);
-    if (existing) registry.connect(existing);
-  }
+  // the two requests the honesty gate is built on. Whether the entry *stays*
+  // depends on what the instance answers — see below.
+  registry.connect(entry);
 
   state.connectingTo = decision.baseUrl;
   state.connection = null;
@@ -172,19 +171,19 @@ async function openInstance(baseUrl: string, label: string | null): Promise<void
   state.connectingTo = null;
 
   if (result.kind === "refused") {
-    // Withdraw everything the attempt granted. A refused instance leaves no
-    // permission and no stored entry behind.
-    registry.forget(decision.baseUrl);
+    // Withdraw what the attempt granted: no permission to contact it again
+    // without a fresh connection, and no credentials held for it.
+    disconnectOrigin(decision.origin);
     forgetCredentials(decision.origin);
-  } else {
-    state.entries = registry.connect({ baseUrl: decision.baseUrl, label: label ?? labelFor(decision.baseUrl) });
+    // The **entry** only goes if this address was not already remembered. An
+    // instance the operator has connected before and has since stopped answers
+    // exactly like one that was never CloFin at all, and deleting their saved
+    // address because their machine was off would be a surprising thing for a
+    // refusal to do.
+    if (!remembered) registry.forget(decision.baseUrl);
   }
   state.entries = registry.entries();
   render();
-}
-
-function labelFor(baseUrl: string): string {
-  return registry.entries().find((entry) => entry.baseUrl === baseUrl)?.label ?? "";
 }
 
 async function chooseProfile(profileId: string): Promise<void> {
