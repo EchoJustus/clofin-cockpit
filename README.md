@@ -12,11 +12,53 @@ quotation from that repository's audited documents.
 
 ## Status
 
-**Planning. Nothing is built here yet.** This repository was created ahead of
-implementation so that its scope and rules are public from its first commit.
-The governing architecture decision (`ADR-0026`, in `clofin-core`) and the
-first implementation phase are gated behind the `ref-2` release of
-`clofin-core` and are tracked there.
+**Phase 1 is built: the honesty frame and the release browser. Nothing here
+calls a CloFin instance yet.**
+
+The governing architecture decision is
+[`ADR-0026`](https://github.com/EchoJustus/clofin-core/blob/main/docs/ADR/0026-three-repositories-and-the-cockpits-role-boundary.md)
+in `clofin-core`, which amends `ADR-0020` and records the ruling that made
+CloFin three repositories.
+
+**What exists now**, as a static single-page application published to GitHub
+Pages — no server, no telemetry, no analytics, no third-party CDN:
+
+- **The honesty frame.** The scope statement quoted below is written once, in
+  one constant, rendered into the page at build time, and shown in-frame and
+  non-dismissible on every view. It is static markup, so it is there before any
+  script runs and stays there if none ever does.
+- **The release browser.** `clofin-core`'s `ref-<n>` releases, read from the
+  public GitHub API without any credential. Each release shows its tag, its
+  commit SHA and its release-audit coverage **together** — the coverage parsed
+  out of the release body's `RELEASE AUDIT:` paragraph, never typed here. The
+  parse fails closed: a body it cannot read renders as *"coverage statement not
+  found"*, never as a blank and never toward any word like audited. `ref-1`
+  reads as `PARTIAL — charter items 1-4 of 8`.
+- **The Compose deployment card.** For a selected release, the exact commands
+  to run that release locally, pinned to the tag and verifying the commit.
+  Generated text only — this page executes nothing and cannot reach your
+  machine.
+- **Two automated checks**, and deliberately no third: `scope-verbatim`
+  compares the rendered scope statement with its canonical constant and with
+  this README's quotation, byte for byte; `no-unqualified-audited` fails the
+  build on any text calling a release audited, verified or reviewed without
+  saying what the audit covered. The build itself refuses to emit a site that
+  could contact any origin but `api.github.com`.
+- **[`docs/ADR/0001`](docs/ADR/0001-typescript-on-a-tsc-only-toolchain-without-a-framework.md)**,
+  recording the toolchain: TypeScript compiled by `tsc`, no framework, no
+  bundler, and no runtime dependencies.
+
+**What is still gated.** Everything in *What it will do* below that talks to a
+running instance — deploy-and-drive, accounts, operate, scheme simulation —
+waits on two things in `clofin-core`: the `ref-2` release, and a CORS decision,
+which is its own reviewed change there and is not pre-approved by `ADR-0026`.
+The Codespaces and Actions-runner drivers are later phases; the Compose card
+establishes the driver shape first.
+
+**No credential is handled in this increment.** Rule 3 below describes where a
+GitHub token *would* live if one were ever needed; today none is asked for,
+stored or sent, and the build fails if any credential handling appears in the
+output.
 
 ## Role in the CloFin ecosystem
 
