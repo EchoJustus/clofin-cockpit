@@ -1,0 +1,17 @@
+{
+  "//": [
+    "The test build. Compiles src and test together into tmp/test, which",
+    "`node --test` then runs. Separate from tsconfig.json because the site",
+    "output must contain the application and nothing else — a test helper",
+    "shipped to the browser is a dependency nobody decided to take.",
+    "The directory is not dot-prefixed on purpose: node's test runner skips",
+    "hidden directories, so `node --test .tmp/test` silently finds nothing."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "tmp/test",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

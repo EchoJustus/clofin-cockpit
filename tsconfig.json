@@ -1,0 +1,37 @@
+{
+  "//": [
+    "The site build. Emits plain ES modules into _site/js, which is what the",
+    "browser loads — there is no bundler and no minifier between this output",
+    "and the deployed page. `removeComments` stays false on purpose: a reader",
+    "who opens the deployed site's source sees the same commented code that is",
+    "in this repository, which is the point of a cockpit that owns no truth.",
+    "See docs/ADR/0001."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "removeComments": false,
+    "declaration": false,
+    "sourceMap": false,
+    "newLine": "lf",
+
+    "rootDir": "src",
+    "outDir": "_site/js"
+  },
+  "include": ["src/**/*.ts"]
+}

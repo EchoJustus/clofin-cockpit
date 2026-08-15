@@ -1,0 +1,11 @@
+# Build output. The site is built from source in CI and published from there;
+# a committed _site is a second copy of the truth that drifts (clofin-core
+# lesson L-4).
+/_site/
+/tmp/
+
+# Dependencies. package-lock.json IS committed — the toolchain is pinned.
+/node_modules/
+
+npm-debug.log*
+.DS_Store

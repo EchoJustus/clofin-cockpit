@@ -1,0 +1,26 @@
+{
+  "name": "clofin-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The operator cockpit for CloFin — a transparent client that owns no truth and may never claim.",
+  "license": "EPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EchoJustus/clofin-cockpit.git"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.test.json --noEmit",
+    "test": "tsc --project tsconfig.test.json && node --test \"tmp/test/test/**/*.test.js\"",
+    "build": "npm run test && node tools/build.mjs",
+    "check:scope-verbatim": "node tools/check-scope-verbatim.mjs",
+    "check:no-unqualified-audited": "node tools/check-no-unqualified-audited.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  }
+}
