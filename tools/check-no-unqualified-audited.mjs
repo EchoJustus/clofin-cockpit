@@ -17,12 +17,19 @@
  * lesson **L-14** is the record of that class of claim; the remedy is that the
  * qualifier travels with the word, always, or the build goes red.
  *
- * **Scope: everything in the built site.** HTML, JavaScript and CSS, including
- * comments — the deployed JavaScript keeps its comments (see `docs/ADR/0001`),
- * so they are part of what a reader of this site can read, and they are held
- * to the same rule as the rendered page. Prose is reassembled across the line
- * wraps and comment leaders it was written with, so a sentence is judged whole
- * rather than in the fragments a text editor happened to leave it in.
+ * **Scope: everything in the built site.** HTML, JavaScript, CSS **and the
+ * seed profiles**, including comments — the deployed JavaScript keeps its
+ * comments (see `docs/ADR/0001`), so they are part of what a reader of this
+ * site can read, and they are held to the same rule as the rendered page.
+ * Prose is reassembled across the line wraps and comment leaders it was
+ * written with, so a sentence is judged whole rather than in the fragments a
+ * text editor happened to leave it in.
+ *
+ * The profiles joined that list when they arrived, rather than a third check
+ * being added for them. They are documents this site serves and renders, they
+ * are full of prose about what a step demonstrates, and prose about what
+ * something demonstrates is exactly where this word appears without its
+ * qualifier. One rule, more files.
  *
  * A failure quotes the offending sentence. A rule whose report says only that
  * something is wrong somewhere is a rule that gets suppressed.
@@ -52,7 +59,7 @@ const QUALIFIERS = [
   /\bitems?\s+\d+\s*[-‐-―]\s*\d+\s+of\s+\d+/i,
 ];
 
-const SCANNED_EXTENSIONS = [".html", ".js", ".css"];
+const SCANNED_EXTENSIONS = [".html", ".js", ".css", ".json"];
 
 function argument(flag, fallback) {
   const at = process.argv.indexOf(flag);
@@ -75,6 +82,12 @@ function proseOf(name, raw) {
   }
   if (name.endsWith(".css")) {
     return raw.replace(/\/\*|\*\//g, " ");
+  }
+  if (name.endsWith(".json")) {
+    // A profile is prose inside JSON string values. Unescaping the newlines it
+    // was written with is what lets a sentence be judged whole rather than
+    // split at whatever column the document's author wrapped it.
+    return raw.replace(/\\n/g, "\n").replace(/\\"/g, '"');
   }
   return raw;
 }

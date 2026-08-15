@@ -29,6 +29,12 @@
  *    comparison unwraps line breaks and blockquote markers — and nothing else.
  *    A changed word still fails.
  *
+ * 4. **So does every seed profile.** A profile is a document this site serves
+ *    and renders, and rule 2 applies to it for the same reason it applies to a
+ *    page: a friendlier second copy of the statement is the failure, wherever
+ *    it is. This is the existing rule over more files rather than a new check —
+ *    this repository is entitled to two guarantees and has two.
+ *
  * The constant is read from the **built** `js/scope.js`, so what is compared is
  * the module the browser actually loads rather than a second reading of the
  * source. When a comparison fails the report names the exact character at which
@@ -167,6 +173,14 @@ async function main() {
     problems.push(`${readmePath}: not found; the repository's front door must carry the scope statement too`);
   }
 
+  const profiles = (await readdir(site, { recursive: true }))
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+  for (const name of profiles) {
+    const raw = await readFile(join(site, name), "utf8");
+    problems.push(...checkCopies(name, raw.replace(/\\n/g, " ").replace(/\\"/g, '"'), canonical));
+  }
+
   if (readme !== undefined) {
     const unwrapped = unwrapMarkdown(readme);
     if (!unwrapped.includes(flatten(canonical))) {
@@ -187,7 +201,8 @@ async function main() {
 
   process.stdout.write(
     `scope-verbatim OK — the canonical scope statement appears verbatim ${marked} time(s) ` +
-      `across ${pages.length} page(s), and in README.md.\n`,
+      `across ${pages.length} page(s), and in README.md; no near-copy anywhere in those or ` +
+      `in ${profiles.length} profile document(s).\n`,
   );
   return 0;
 }

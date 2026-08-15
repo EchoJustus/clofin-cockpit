@@ -374,3 +374,462 @@ h3 {
 .foot p {
   margin: 0.25rem 0;
 }
+
+/* ---------------------------------------------------------------------------
+   Phase 2 — instances, raw exchanges and the bootstrap run.
+   The rule from the top of this file still holds: colour separates regions,
+   it never carries meaning on its own. A step that failed says "failed" in
+   words; the red is only so you find it quickly.
+   --------------------------------------------------------------------------- */
+
+.nav {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 1.25rem;
+}
+
+.nav__link {
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--card);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.nav__link--on {
+  background: var(--deep);
+  border-color: var(--deep);
+  color: var(--deep-ink);
+}
+
+/* The connect form. Phase 1's build refused to emit a form at all; phase 2's
+   purpose is forms that drive the real API. form-action 'none' means none of
+   them may submit anywhere — see docs/ADR/0002. */
+
+.connect {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem 1.1rem;
+  margin: 0 0 1.25rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.connect__row {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.connect__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.connect__pending {
+  color: var(--ink-soft);
+}
+
+.input {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  width: 100%;
+}
+
+.input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.copy--inline {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.copy--quiet {
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  background: var(--card);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+
+.copy--chosen {
+  background: var(--deep);
+  color: var(--deep-ink);
+}
+
+.rules {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.rules__label {
+  display: block;
+  font-weight: 600;
+}
+
+.rules__sources {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+}
+
+.instances {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.instances__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+
+.instances__url {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+}
+
+.instances__label {
+  color: var(--ink-soft);
+  flex: 1 1 auto;
+}
+
+.fields {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.field__label {
+  min-width: 11rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.field__value {
+  font-weight: 600;
+}
+
+.field__value--mono {
+  font-family: var(--mono);
+  font-weight: 400;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.quote {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.9rem;
+  border-left: 4px solid var(--accent);
+  background: var(--paper);
+  font-size: 0.95rem;
+}
+
+.quote--canonical {
+  border-left-color: var(--deep);
+}
+
+.card--divergent {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.card__note--strong {
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  padding: 0.5rem 0.7rem;
+}
+
+/* Raw exchanges. The whole request and the whole response, every time. */
+
+.raws {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.raw {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+}
+
+.raw__summary {
+  cursor: pointer;
+  padding: 0.5rem 0.7rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.88rem;
+}
+
+.raw__method {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.raw__url {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+  flex: 1 1 12rem;
+}
+
+.raw__status {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.raw__status--ok {
+  color: #1d6b3f;
+}
+
+.raw__status--refused {
+  color: var(--warn-ink);
+}
+
+.raw__status--failed {
+  color: #9b2226;
+}
+
+.raw__timing {
+  color: var(--ink-soft);
+}
+
+.raw__body {
+  padding: 0 0.7rem 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.raw__body h4 {
+  margin: 0.9rem 0 0.3rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.raw__pre {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow-x: auto;
+  font-size: 0.84rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.raw__pre--curl {
+  background: #0f2733;
+  color: #e6f3f8;
+  border-color: #0f2733;
+}
+
+.raw__note {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+.raw__none {
+  margin: 0.35rem 0 0;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.raw__failure {
+  margin: 0.35rem 0 0;
+  font-family: var(--mono);
+  color: #9b2226;
+}
+
+/* The run. */
+
+.profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0;
+}
+
+.profile {
+  margin-top: 0.8rem;
+}
+
+.actors {
+  list-style: none;
+  margin: 0.4rem 0 1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.actors li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.88rem;
+}
+
+.actors__name {
+  min-width: 14rem;
+  font-weight: 600;
+}
+
+.actors__roles {
+  color: var(--ink-soft);
+  min-width: 7rem;
+}
+
+.actors__id {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.steps {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0.6rem 0;
+  padding-left: 1.2rem;
+}
+
+.steps--plan li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.steps__kind {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  min-width: 16rem;
+  color: var(--ink-soft);
+}
+
+.step {
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--card);
+  padding: 0.6rem 0.8rem;
+}
+
+.step--done {
+  border-left-color: #1d6b3f;
+}
+
+.step--already-present {
+  border-left-color: var(--accent);
+}
+
+.step--awaiting-operator {
+  border-left-color: var(--warn-line);
+  background: var(--warn-bg);
+}
+
+.step--failed {
+  border-left-color: #9b2226;
+}
+
+.step__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.step__number {
+  font-family: var(--mono);
+  color: var(--ink-soft);
+}
+
+.step__title {
+  font-weight: 700;
+  flex: 1 1 auto;
+}
+
+.step__status {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.step__summary {
+  margin: 0.35rem 0 0.5rem;
+}
+
+.step__sql h4,
+.step__unverifiable h4 {
+  margin: 0.7rem 0 0.3rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.step__unverifiable {
+  border: 1px dashed var(--warn-line);
+  border-radius: 6px;
+  padding: 0.4rem 0.7rem;
+  margin: 0.6rem 0;
+  background: var(--warn-bg);
+}
+
+.step__unverifiable ul {
+  margin: 0.2rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+
+.step__raw {
+  margin-top: 0.6rem;
+}
+
+.halt {
+  border: 1px solid #9b2226;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.8rem 0;
+  background: #fdf1f1;
+}
+
+.halt h3 {
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
+}

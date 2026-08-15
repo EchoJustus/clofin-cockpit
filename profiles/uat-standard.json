@@ -1,0 +1,199 @@
+{
+  "id": "uat-standard",
+  "formatVersion": 1,
+  "version": "1.0.0",
+  "title": "UAT standard organisation",
+  "summary": "The actor set, chart of accounts and approval bands the CloFin UAT scripts use: a maker, two checkers with different ceilings, a controller, an auditor and a second operator; the 1100 / 1300 / 2100 chart in SGD; and one approval below SGD 1,000.00, two at or above it.",
+  "source": "clofin-core docs/uat/UAT-005-segregation-of-duties.md and UAT-006-settlement-simulation.md, and the capture harness's uat-005 scenario in tools/clofin/tools/capture/scenarios.clj",
+
+  "actors": [
+    { "key": "priya", "displayName": "Priya (maker)", "roles": ["operator"], "limits": [] },
+    { "key": "wei", "displayName": "Wei (checker)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 500000 }] },
+    { "key": "nadia", "displayName": "Nadia (checker)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 5000000 }] },
+    { "key": "sam", "displayName": "Sam (controller)", "roles": ["controller"], "limits": [] },
+    { "key": "rae", "displayName": "Rae (auditor)", "roles": ["auditor"], "limits": [] },
+    { "key": "tom", "displayName": "Tom (second operator)", "roles": ["operator"], "limits": [] }
+  ],
+
+  "thresholds": [
+    { "currency": "SGD", "fromMinor": 0, "approvalsRequired": 1 },
+    { "currency": "SGD", "fromMinor": 100000, "approvalsRequired": 2 }
+  ],
+
+  "steps": [
+    {
+      "kind": "request",
+      "id": "create-organisation",
+      "title": "Register the organisation",
+      "why": "POST /organisations is CloFin's one unauthenticated write, and it has to be first: no actor can exist before the organisation that holds one, so an authenticated bootstrap would need an actor belonging to no organisation — the superuser the authorisation model exists to avoid (ADR-0017).",
+      "method": "POST",
+      "path": "/organisations",
+      "as": null,
+      "body": {
+        "legalName": "Meridian Freight Holdings Pte Ltd",
+        "shortName": "cockpit-uat-standard"
+      },
+      "expect": [201],
+      "capture": { "organisationId": "id" },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": false,
+        "meaning": "This instance already has an organisation with this short name, so nothing was created a second time — the instance refused it.",
+        "note": "The run stops here. CloFin has no endpoint that looks an organisation up by short name, so the cockpit cannot learn the existing one's id and will not guess it. Start a fresh instance (make destroy && make up) to run this profile again, or continue in the browser session where the id is still held."
+      }
+    },
+
+    {
+      "kind": "manual",
+      "id": "seed-actors-and-roles",
+      "title": "Seed the actors, their roles and their approval ceilings",
+      "why": "CloFin deliberately has no endpoint that creates an actor, grants a role or sets a limit: an actor able to grant itself the approver role would make segregation of duties unenforceable however carefully the rule is written (UAT-005 §2). The absence is a control decision, so the cockpit generates the statements for you to run against your own instance rather than pretending an API exists.",
+      "statements": [
+        "insert into actor (id, organisation_id, display_name) values\n  ('{{actor:priya}}','{{organisationId}}','Priya (maker)'),\n  ('{{actor:wei}}','{{organisationId}}','Wei (checker)'),\n  ('{{actor:nadia}}','{{organisationId}}','Nadia (checker)'),\n  ('{{actor:sam}}','{{organisationId}}','Sam (controller)'),\n  ('{{actor:rae}}','{{organisationId}}','Rae (auditor)'),\n  ('{{actor:tom}}','{{organisationId}}','Tom (second operator)');",
+        "insert into actor_role (actor_id, role) values\n  ('{{actor:priya}}','operator'),\n  ('{{actor:wei}}','approver'),\n  ('{{actor:nadia}}','approver'),\n  ('{{actor:sam}}','controller'),\n  ('{{actor:rae}}','auditor'),\n  ('{{actor:tom}}','operator');",
+        "insert into approver_limit (actor_id, currency, limit_minor) values\n  ('{{actor:wei}}','SGD',500000),\n  ('{{actor:nadia}}','SGD',5000000);"
+      ],
+      "howToRun": [
+        "In the checkout you started this instance from:",
+        "  make db-shell",
+        "then paste the statements above. This page runs nothing and cannot reach your machine.",
+        "These are inserts. The identifiers above are minted fresh for this run and held in this browser tab only, so running them twice would create a second set of actors — the run itself cannot reach this step twice against the same instance, because the organisation's short name stops it at step 1."
+      ],
+      "verify": {
+        "title": "Ask the instance, as Sam, for the chart of accounts",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sam",
+        "expect": [200],
+        "proves": "The instance accepted this actor id, resolved it to an actor in this organisation, and found the controller role's account/read permission on it. A 401 would mean no such actor; a 403 would mean the actor exists without that permission."
+      },
+      "unverifiable": [
+        "That every actor was created, rather than just Sam: the verification names one actor id, and CloFin has no endpoint that lists actors. Each subsequent step that acts as another actor exercises that actor's id for real, and its response is shown.",
+        "The approver limits: CloFin exposes no read for approver_limit. A limit is exercised when an approval is attempted above it, which is a payment flow rather than a bootstrap."
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "account-1100",
+      "title": "Open 1100-CLIENT-FUNDS",
+      "why": "Opening a ledger account is a controller right — an operator who could open one could open the account their own payment credits. The chart is read first so a re-run reports what is already there instead of asking the instance to create it twice.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "1100-CLIENT-FUNDS",
+        "name": "Client funds — pooled",
+        "type": "asset",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountClientFunds": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sam",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "1100-CLIENT-FUNDS" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "request",
+      "id": "account-1300",
+      "title": "Open 1300-IN-TRANSIT",
+      "why": "The settlement-in-transit leg. A released payment posts here rather than straight out of client funds, so that money in flight is visible as money in flight (ADR-0018).",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "1300-IN-TRANSIT",
+        "name": "Settlement in transit",
+        "type": "asset",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountInTransit": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sam",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "1300-IN-TRANSIT" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "request",
+      "id": "account-2100",
+      "title": "Open 2100-CLIENT-PAYABLE",
+      "why": "The liability side of the pair. Client funds held are an asset; what is owed back to the client is a liability, and a chart that carries only one of them cannot balance.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sam",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "2100-CLIENT-PAYABLE",
+        "name": "Client payable",
+        "type": "liability",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountClientPayable": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sam",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "2100-CLIENT-PAYABLE" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "manual",
+      "id": "approval-thresholds",
+      "title": "Configure the approval bands",
+      "why": "Thresholds are per currency and never converted (ADR-0015), and like actors and roles they have no endpoint — the number of approvals a payment needs is not something a caller of the payments API gets to set. One approval below SGD 1,000.00; two at or above it.",
+      "statements": [
+        "insert into approval_threshold (organisation_id, currency, from_minor, approvals_required) values\n  ('{{organisationId}}','SGD',0,1),\n  ('{{organisationId}}','SGD',100000,2)\non conflict (organisation_id, currency, from_minor) do nothing;"
+      ],
+      "howToRun": [
+        "In the same database shell:",
+        "  make db-shell",
+        "then paste the statement above.",
+        "This one is safe to run twice: the on-conflict clause matches approval_threshold's own primary key, so a second run inserts nothing."
+      ],
+      "verify": {
+        "title": "Ask the instance, as Wei, for the approval queue",
+        "method": "GET",
+        "path": "/approvals/queue?organisationId={{organisationId}}",
+        "as": "wei",
+        "expect": [200],
+        "proves": "That this instance accepted Wei's actor id and the approver role's approval/read permission, and that the queue is readable for this organisation. It does not show the thresholds — see below."
+      },
+      "unverifiable": [
+        "The approval bands themselves. CloFin exposes no endpoint that reads approval_threshold, so nothing the cockpit can ask demonstrates that these two rows are present. What exercises them is a payment crossing a band — the approval flow, which is a later phase — and at that point the instance's refusal or acceptance is the evidence."
+      ]
+    }
+  ]
+}

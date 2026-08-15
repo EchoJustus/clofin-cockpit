@@ -10,15 +10,20 @@
  *    comments intact, so a reader can open the published page's source and
  *    read the thing that rendered it. `docs/ADR/0001` explains why that is
  *    worth more here than a smaller download.
- * 2. Copy `static/` over it.
+ * 2. Copy `static/` over it, and `profiles/` beside it. A seed profile is data
+ *    in this repository, served as the JSON file it is — so the document the
+ *    deployed cockpit executes can be fetched and diffed against the one in
+ *    the repository, which a profile compiled into a bundle could not be.
  * 3. **Render the honesty frame into the page**, from the one canonical
- *    constant in `src/scope.ts`. The scope statement is never typed into HTML
- *    by hand; there is exactly one copy in this repository and this is where
- *    it becomes markup. That is also why it survives a JavaScript failure: it
- *    is in the document before any script runs.
+ *    constant in `src/scope.ts`, **and the Content-Security-Policy**, from the
+ *    one rule in `src/origins.ts`. Neither is ever typed into HTML by hand:
+ *    there is exactly one copy of each in this repository and this is where
+ *    both become markup. That is also why the scope statement survives a
+ *    JavaScript failure — it is in the document before any script runs.
  * 4. Run `guard-network.mjs` and **refuse to finish** if it objects. A site
- *    that could reach a second origin, carry a form, or store a credential is
- *    not published and then reported on — it is not built.
+ *    that could reach somewhere it should not, persist something it should
+ *    not, or carry a credential is not published and then reported on — it is
+ *    not built.
  */
 
 import { spawnSync } from "node:child_process";
@@ -31,6 +36,7 @@ import { guardNetwork } from "./guard-network.mjs";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const FRAME_PLACEHOLDER = "<!--HONESTY-FRAME-->";
+const CSP_PLACEHOLDER = "<!--CONTENT-SECURITY-POLICY-->";
 
 function outDir() {
   const flag = process.argv.indexOf("--out");
@@ -50,23 +56,40 @@ function compile(site) {
   }
 }
 
-async function renderFrame(site) {
-  // Imported from the freshly compiled output, so the constant the page gets
-  // is the constant the application ships — not a second reading of the source.
+function escapeAttribute(value) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}
+
+async function renderPage(site) {
+  // Imported from the freshly compiled output, so what the page gets is what
+  // the application ships — not a second reading of the source.
   const { honestyFrameHtml } = await import(pathToFileURL(join(site, "js", "frame.js")).href);
+  const { contentSecurityPolicy } = await import(
+    pathToFileURL(join(site, "js", "origins.js")).href
+  );
 
   const indexPath = join(site, "index.html");
-  const template = await readFile(indexPath, "utf8");
+  let page = await readFile(indexPath, "utf8");
 
-  if (!template.includes(FRAME_PLACEHOLDER)) {
-    throw new Error(
-      `static/index.html no longer contains ${FRAME_PLACEHOLDER}. The honesty frame ` +
-        "has to be rendered into the page at build time; a page without that " +
-        "placeholder would ship without it.",
-    );
+  for (const [placeholder, what] of [
+    [FRAME_PLACEHOLDER, "honesty frame"],
+    [CSP_PLACEHOLDER, "Content-Security-Policy"],
+  ]) {
+    if (!page.includes(placeholder)) {
+      throw new Error(
+        `static/index.html no longer contains ${placeholder}. The ${what} is rendered into ` +
+          "the page at build time; a page without that placeholder would ship without it.",
+      );
+    }
   }
 
-  await writeFile(indexPath, template.replace(FRAME_PLACEHOLDER, honestyFrameHtml()), "utf8");
+  page = page.replace(FRAME_PLACEHOLDER, honestyFrameHtml());
+  page = page.replace(
+    CSP_PLACEHOLDER,
+    `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(contentSecurityPolicy())}" />`,
+  );
+
+  await writeFile(indexPath, page, "utf8");
 }
 
 async function main() {
@@ -77,7 +100,8 @@ async function main() {
 
   compile(site);
   await cp(resolve(repoRoot, "static"), site, { recursive: true });
-  await renderFrame(site);
+  await cp(resolve(repoRoot, "profiles"), join(site, "profiles"), { recursive: true });
+  await renderPage(site);
 
   const problems = await guardNetwork(site);
   if (problems.length > 0) {

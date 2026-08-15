@@ -1,0 +1,198 @@
+{
+  "id": "high-value-two-approver",
+  "formatVersion": 1,
+  "version": "1.0.0",
+  "title": "High-value, two approvers from the first cent",
+  "summary": "A stricter organisation: every payment needs two approvals whatever its size, three above SGD 100,000.00, and the two checkers have ceilings that do not overlap — so a large payment cannot be approved twice by the same kind of person. One maker, no second operator.",
+  "source": "The same tables as uat-standard, with the band structure PRD Q1 and ADR-0015 make configurable per organisation. Written as the contrast case: same shape, different policy, so the runner can be seen to carry none of it.",
+
+  "actors": [
+    { "key": "dara", "displayName": "Dara (maker)", "roles": ["operator"], "limits": [] },
+    { "key": "imani", "displayName": "Imani (checker, standard ceiling)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 2500000 }] },
+    { "key": "koh", "displayName": "Koh (checker, high ceiling)", "roles": ["approver"], "limits": [{ "currency": "SGD", "limitMinor": 100000000 }] },
+    { "key": "sana", "displayName": "Sana (controller)", "roles": ["controller"], "limits": [] },
+    { "key": "eze", "displayName": "Eze (compliance)", "roles": ["compliance"], "limits": [] }
+  ],
+
+  "thresholds": [
+    { "currency": "SGD", "fromMinor": 0, "approvalsRequired": 2 },
+    { "currency": "SGD", "fromMinor": 10000000, "approvalsRequired": 3 }
+  ],
+
+  "steps": [
+    {
+      "kind": "request",
+      "id": "create-organisation",
+      "title": "Register the organisation",
+      "why": "The one unauthenticated write, and necessarily first: there is no actor until an organisation exists to hold one (ADR-0017).",
+      "method": "POST",
+      "path": "/organisations",
+      "as": null,
+      "body": {
+        "legalName": "Kestrel Treasury Services Pte Ltd",
+        "shortName": "cockpit-high-value"
+      },
+      "expect": [201],
+      "capture": { "organisationId": "id" },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": false,
+        "meaning": "This instance already has an organisation with this short name, so nothing was created a second time — the instance refused it.",
+        "note": "The run stops here. CloFin has no endpoint that looks an organisation up by short name, so the cockpit cannot learn the existing one's id and will not guess it. Start a fresh instance to run this profile again."
+      }
+    },
+
+    {
+      "kind": "manual",
+      "id": "seed-actors-and-roles",
+      "title": "Seed the actors, their roles and their approval ceilings",
+      "why": "No endpoint creates an actor or grants a role, deliberately (UAT-005 §2). Note what the ceilings do here: Imani cannot approve above SGD 25,000.00, so a payment beyond that needs Koh — the policy is expressed in two tables and nowhere in this cockpit.",
+      "statements": [
+        "insert into actor (id, organisation_id, display_name) values\n  ('{{actor:dara}}','{{organisationId}}','Dara (maker)'),\n  ('{{actor:imani}}','{{organisationId}}','Imani (checker, standard ceiling)'),\n  ('{{actor:koh}}','{{organisationId}}','Koh (checker, high ceiling)'),\n  ('{{actor:sana}}','{{organisationId}}','Sana (controller)'),\n  ('{{actor:eze}}','{{organisationId}}','Eze (compliance)');",
+        "insert into actor_role (actor_id, role) values\n  ('{{actor:dara}}','operator'),\n  ('{{actor:imani}}','approver'),\n  ('{{actor:koh}}','approver'),\n  ('{{actor:sana}}','controller'),\n  ('{{actor:eze}}','compliance');",
+        "insert into approver_limit (actor_id, currency, limit_minor) values\n  ('{{actor:imani}}','SGD',2500000),\n  ('{{actor:koh}}','SGD',100000000);"
+      ],
+      "howToRun": [
+        "In the checkout you started this instance from:",
+        "  make db-shell",
+        "then paste the statements above. This page runs nothing and cannot reach your machine.",
+        "These are inserts, and the identifiers are minted fresh for this run, so running them twice would create a second set of actors."
+      ],
+      "verify": {
+        "title": "Ask the instance, as Sana, for the chart of accounts",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sana",
+        "expect": [200],
+        "proves": "The instance accepted this actor id, resolved it to an actor in this organisation, and found the controller role's account/read permission on it."
+      },
+      "unverifiable": [
+        "That every actor was created rather than just Sana: CloFin has no endpoint that lists actors, and each later step that acts as another actor is what exercises that id.",
+        "The approver ceilings: there is no read for approver_limit. They are exercised by an approval attempted above one."
+      ]
+    },
+
+    {
+      "kind": "request",
+      "id": "account-1100",
+      "title": "Open 1100-CLIENT-FUNDS",
+      "why": "A controller right. The chart is read first, so a second run reports what is there rather than asking for it again.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sana",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "1100-CLIENT-FUNDS",
+        "name": "Client funds — pooled",
+        "type": "asset",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountClientFunds": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sana",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "1100-CLIENT-FUNDS" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "request",
+      "id": "account-1300",
+      "title": "Open 1300-IN-TRANSIT",
+      "why": "The settlement-in-transit leg (ADR-0018): money released to a scheme is money in flight, and the ledger says so rather than implying it.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sana",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "1300-IN-TRANSIT",
+        "name": "Settlement in transit",
+        "type": "asset",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountInTransit": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sana",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "1300-IN-TRANSIT" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "request",
+      "id": "account-2100",
+      "title": "Open 2100-CLIENT-PAYABLE",
+      "why": "The liability side of the pair.",
+      "method": "POST",
+      "path": "/accounts",
+      "as": "sana",
+      "body": {
+        "organisationId": "{{organisationId}}",
+        "code": "2100-CLIENT-PAYABLE",
+        "name": "Client payable",
+        "type": "liability",
+        "currency": "SGD"
+      },
+      "expect": [201],
+      "capture": { "accountClientPayable": "id" },
+      "precheck": {
+        "title": "Read the chart of accounts first",
+        "method": "GET",
+        "path": "/accounts?organisationId={{organisationId}}",
+        "as": "sana",
+        "presentWhen": { "listAt": "accounts", "field": "code", "equals": "2100-CLIENT-PAYABLE" }
+      },
+      "conflict": {
+        "statuses": [409],
+        "recoverable": true,
+        "meaning": "This instance already has an account with this code.",
+        "note": "Nothing was created twice; the instance refused it on its own unique constraint."
+      }
+    },
+
+    {
+      "kind": "manual",
+      "id": "approval-thresholds",
+      "title": "Configure the approval bands — two from the first cent",
+      "why": "The band table is the whole difference between this profile and uat-standard: a from_minor of 0 requiring two approvals means no payment in this organisation is ever a one-person decision, and a third is required above SGD 100,000.00.",
+      "statements": [
+        "insert into approval_threshold (organisation_id, currency, from_minor, approvals_required) values\n  ('{{organisationId}}','SGD',0,2),\n  ('{{organisationId}}','SGD',10000000,3)\non conflict (organisation_id, currency, from_minor) do nothing;"
+      ],
+      "howToRun": [
+        "In the same database shell:",
+        "  make db-shell",
+        "then paste the statement above.",
+        "Safe to run twice: the on-conflict clause matches approval_threshold's own primary key."
+      ],
+      "verify": {
+        "title": "Ask the instance, as Imani, for the approval queue",
+        "method": "GET",
+        "path": "/approvals/queue?organisationId={{organisationId}}",
+        "as": "imani",
+        "expect": [200],
+        "proves": "That this instance accepted Imani's actor id and the approver role's approval/read permission for this organisation. It does not show the bands — see below."
+      },
+      "unverifiable": [
+        "The approval bands themselves. CloFin exposes no endpoint that reads approval_threshold. Requiring three approvals above SGD 100,000.00 is a claim this page cannot check; a payment of that size, refused until a third approval arrives, is what would demonstrate it."
+      ]
+    }
+  ]
+}
