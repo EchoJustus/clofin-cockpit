@@ -35,6 +35,15 @@
  *    it is. This is the existing rule over more files rather than a new check —
  *    this repository is entitled to two guarantees and has two.
  *
+ * 5. **And so does everything a batch run publishes.** The scenario runner
+ *    writes a job summary that GitHub serves to anybody with the link, and that
+ *    summary opens with this statement. It gets it by importing the constant,
+ *    so there is still one copy — but `--also` walks `headless/` and
+ *    `playbooks/` anyway, because the way this rule fails is somebody typing a
+ *    friendlier version into a template rather than importing the strict one,
+ *    and the failure is the same whether the reader meets it on a page or in a
+ *    summary. Same rule, more files, still two checks.
+ *
  * The constant is read from the **built** `js/scope.js`, so what is compared is
  * the module the browser actually loads rather than a second reading of the
  * source. When a comparison fails the report names the exact character at which
@@ -58,9 +67,44 @@ const OPENINGS = [
 
 const SCOPE_MARKER = "data-scope-statement";
 
+/**
+ * Directories outside the built site that are also held to rule 2.
+ *
+ * They are not served to a browser, so they carry no marked statement and rule
+ * 1 does not apply to them. What they do carry is prose that reaches a reader
+ * some other way — the batch runner's summary, and the playbooks it renders —
+ * and a near-copy of the statement there would be exactly the failure this
+ * check exists for.
+ */
+const ALSO_DIRECTORIES = ["headless", "playbooks"];
+
+/** Extensions worth reading in those directories. Prose lives in all three. */
+const ALSO_EXTENSIONS = [".ts", ".json", ".md"];
+
 function argument(flag, fallback) {
   const at = process.argv.indexOf(flag);
   return at >= 0 ? (process.argv[at + 1] ?? fallback) : fallback;
+}
+
+/** Every file under a directory that might carry prose. Missing is not a failure. */
+async function alsoFiles(root) {
+  const found = [];
+  for (const directory of ALSO_DIRECTORIES) {
+    const base = resolve(root, directory);
+    let names;
+    try {
+      names = await readdir(base, { recursive: true });
+    } catch {
+      // A repository laid out differently, or a checkout of only the site.
+      continue;
+    }
+    for (const name of names.sort()) {
+      if (ALSO_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+        found.push({ label: `${directory}/${name}`, path: join(base, name) });
+      }
+    }
+  }
+  return found;
 }
 
 function describe(character) {
@@ -181,6 +225,16 @@ async function main() {
     problems.push(...checkCopies(name, raw.replace(/\\n/g, " ").replace(/\\"/g, '"'), canonical));
   }
 
+  const also = await alsoFiles(resolve(argument("--root", ".")));
+  for (const file of also) {
+    const raw = await readFile(file.path, "utf8");
+    // JSON string escapes are undone for the same reason the profiles are:
+    // a sentence wrapped across a document's own `\n` is still a sentence.
+    problems.push(
+      ...checkCopies(file.label, raw.replace(/\\n/g, " ").replace(/\\"/g, '"'), canonical),
+    );
+  }
+
   if (readme !== undefined) {
     const unwrapped = unwrapMarkdown(readme);
     if (!unwrapped.includes(flatten(canonical))) {
@@ -201,8 +255,8 @@ async function main() {
 
   process.stdout.write(
     `scope-verbatim OK — the canonical scope statement appears verbatim ${marked} time(s) ` +
-      `across ${pages.length} page(s), and in README.md; no near-copy anywhere in those or ` +
-      `in ${profiles.length} profile document(s).\n`,
+      `across ${pages.length} page(s), and in README.md; no near-copy anywhere in those, ` +
+      `in ${profiles.length} profile document(s), or in ${also.length} batch-run file(s).\n`,
   );
   return 0;
 }

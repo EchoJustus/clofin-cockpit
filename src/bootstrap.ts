@@ -119,6 +119,35 @@ export type StepStatus =
   | "awaiting-operator"
   | "failed";
 
+/**
+ * The words for those states, in one place.
+ *
+ * The vocabulary the TASK-012 changelog ratified is `done`, `already present`,
+ * `waiting for you` and `failed`, and it is a vocabulary rather than a set of
+ * labels: an interface that said "pending approval" where another said "waiting
+ * for you" would be two products. It lives here, beside the type it names, so
+ * that the run screens and the batch runner's summary render the same word for
+ * the same state — the alternative is a second table somewhere else, which is
+ * how a vocabulary becomes almost-shared.
+ *
+ * `pending` and `running` are not part of the four: they are what a step is
+ * before it has an outcome, and they are given words here because a summary
+ * that printed a raw identifier for them would be printing code at a reader.
+ */
+export const STATUS_WORDS: Readonly<Record<StepStatus, string>> = {
+  pending: "not started",
+  running: "running",
+  done: "done",
+  "already-present": "already present",
+  "awaiting-operator": "waiting for you",
+  failed: "failed",
+};
+
+/** How a status is said, wherever it is said. */
+export function statusWord(status: StepStatus): string {
+  return STATUS_WORDS[status];
+}
+
 /** Why a step is waiting. Three reasons, one state, one consequence. */
 export type WaitingFor = "sql" | "actor" | "choice";
 

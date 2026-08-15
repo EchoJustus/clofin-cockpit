@@ -1,0 +1,24 @@
+{
+  "//": [
+    "The headless scenario runner. Compiles src and headless together into",
+    "tmp/headless, which the scenario-run workflow then executes with node.",
+    "",
+    "Separate from tsconfig.json for the same reason tsconfig.test.json is: the",
+    "site output must contain the application and nothing else. A batch entry",
+    "point that reads files, spawns a database client and writes a job summary",
+    "has no business in a browser, and keeping it out of `include` there is what",
+    "makes that structural rather than a rule somebody has to remember.",
+    "",
+    "It compiles the same src/ modules the site does — deliberately. The whole",
+    "claim of this entry point is that it drives the one runner, and a second",
+    "copy of the runner compiled with different options would be the second",
+    "engine ADR-0003 refused."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "tmp/headless",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "headless/**/*.ts"]
+}

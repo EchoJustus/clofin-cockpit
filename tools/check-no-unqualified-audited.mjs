@@ -31,6 +31,15 @@
  * something demonstrates is exactly where this word appears without its
  * qualifier. One rule, more files.
  *
+ * **The batch runner joined it on the same terms.** `headless/` and
+ * `playbooks/` are not in the built site — they are the scenario runner and the
+ * documents it executes — but what they produce is a **job summary a public
+ * repository serves to anybody with the link**, whose whole subject is what a
+ * tagged release did and what its audit covered. That is the most likely place
+ * in this repository for an unqualified claim to be written, and it is read by
+ * people who never open the site. So the same rule walks those directories,
+ * with `--also`. Still two checks.
+ *
  * A failure quotes the offending sentence. A rule whose report says only that
  * something is wrong somewhere is a rule that gets suppressed.
  */
@@ -61,9 +70,40 @@ const QUALIFIERS = [
 
 const SCANNED_EXTENSIONS = [".html", ".js", ".css", ".json"];
 
+/**
+ * Directories outside the built site whose prose reaches a reader anyway.
+ *
+ * `headless/` writes the job summary and `playbooks/` is rendered into it.
+ * `.ts` is scanned there rather than `.js` because that is the form those files
+ * are committed in; comments included, for the same reason the deployed
+ * JavaScript's comments are scanned.
+ */
+const ALSO_DIRECTORIES = ["headless", "playbooks"];
+const ALSO_EXTENSIONS = [".ts", ".json", ".md"];
+
 function argument(flag, fallback) {
   const at = process.argv.indexOf(flag);
   return at >= 0 ? (process.argv[at + 1] ?? fallback) : fallback;
+}
+
+/** Every prose-carrying file in those directories. A missing one is not a failure. */
+async function alsoFiles(root) {
+  const found = [];
+  for (const directory of ALSO_DIRECTORIES) {
+    const base = resolve(root, directory);
+    let names;
+    try {
+      names = await readdir(base, { recursive: true });
+    } catch {
+      continue;
+    }
+    for (const name of names.sort()) {
+      if (ALSO_EXTENSIONS.some((extension) => name.endsWith(extension))) {
+        found.push({ label: `${directory}/${name}`, path: join(base, name) });
+      }
+    }
+  }
+  return found;
 }
 
 function isQualified(sentence) {
@@ -144,8 +184,14 @@ async function main() {
   const problems = [];
   let claims = 0;
 
-  for (const name of names) {
-    const raw = await readFile(join(site, name), "utf8");
+  const also = await alsoFiles(resolve(argument("--root", ".")));
+  const scanned = [
+    ...names.map((name) => ({ label: name, path: join(site, name) })),
+    ...also,
+  ];
+
+  for (const { label: name, path } of scanned) {
+    const raw = await readFile(path, "utf8");
     const blocks = provenanceBlocks(name, raw);
 
     for (const sentence of sentences(proseOf(name, raw))) {
@@ -179,7 +225,7 @@ async function main() {
 
   process.stdout.write(
     `no-unqualified-audited OK — ${claims} assurance claim(s) across ${names.length} built ` +
-      "file(s), every one of them qualified.\n",
+      `file(s) and ${also.length} batch-run file(s), every one of them qualified.\n`,
   );
   return 0;
 }

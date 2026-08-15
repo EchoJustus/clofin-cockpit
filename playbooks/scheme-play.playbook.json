@@ -1,0 +1,46 @@
+{
+  "formatVersion": 1,
+  "id": "scheme-play-full",
+  "version": "1.0.0",
+  "scenario": "scheme-play",
+  "title": "The whole scheme sequence: settle, duplicate, return, contradiction, silence, sweep, late answer",
+  "summary": "Every decision a batch run of the scheme-play flow will make, written down before the run makes it. In the browser an operator answers each choice with one deliberate click and nobody can predict the answers; a batch has nobody at the keyboard, so the answers are declared here instead, in a file a reader can diff against this repository before reading a single result. The sequence is the one the phase-3 walk performed by hand: item A settles and is then delivered again unchanged, item B comes back and is then contradicted, item C is met with silence, the sweep gives up on it, and the scheme finally answers late. There are six answers and seven moments, because the sweep is not a choice: it is a request step the flow performs on its own, and a playbook has nothing to say about a step where nobody is being asked anything.",
+  "source": "clofin-core docs/uat/UAT-006-settlement-simulation.md steps 6 to 9, and the walk recorded in 013-REQ section 6. The option ids below are profiles/scheme-play.json's own; nothing here invents a request.",
+  "notThis": [
+    "This document answers choices. It cannot add a step, change a request, relax an expected status or write a body — every one of those lives in profiles/scheme-play.json, and a batch run executes that document exactly as a browser does.",
+    "It is not read by the browser and is not served beside the page. Auto-play in the browser stays refused: this file exists because a batch run has no operator, not because the click was inconvenient.",
+    "A choice it does not answer is not defaulted. The run stops at that step in the same waiting state a browser shows, and the job fails naming the step."
+  ],
+  "answers": [
+    {
+      "step": "item-a-answer",
+      "option": "settle-a",
+      "why": "The flow's only option here, because the two steps after it are written for a settled item. Declaring it changes nothing about what is sent; it records that the batch chose it rather than fell into it."
+    },
+    {
+      "step": "item-a-duplicate",
+      "option": "duplicate-a",
+      "why": "The same message again, byte for byte. The answer to look for is replayed: true with the batch's schemeResponses list no longer than it was, and the three balances unmoved because a duplicate delivery moves no money."
+    },
+    {
+      "step": "item-b-answer",
+      "option": "return-b",
+      "why": "Genuinely a choice: the endpoint would have settled item B just as readily, and the creditor account's last digit is guidance to whoever composes the message rather than a rule the endpoint enforces. A return is declared because it is the answer that leaves an exception behind, and because the next step is written to contradict it."
+    },
+    {
+      "step": "item-b-contradiction",
+      "option": "contradict-b-settled",
+      "why": "The late message that claims the opposite of what already happened, taken from the settled direction because the step above returned item B. A 409 is the expected outcome here and the run treats it as one: the item has an outcome, and overwriting it on the say-so of a late message is the thing CloFin refuses to do."
+    },
+    {
+      "step": "item-c-silence",
+      "option": "stay-silent",
+      "why": "The one option that sends no request at all, because that is what silence is. A batch run declaring silence has to be as honest about it as a browser is: nothing is sent, the balances are still re-read, and the step's own note says what was not done."
+    },
+    {
+      "step": "item-c-late-answer",
+      "option": "late-settled",
+      "why": "A timeout-resolution is the only kind that may answer an item the sweep gave up on. Settled is declared so the run ends with the clearing account drained and every item answered for, which is the position the flow's last readouts are written to show."
+    }
+  ]
+}
