@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CloFin operator cockpit — releases</title>
+    <meta
+      name="description"
+      content="Browse the tagged releases of the CloFin reference implementation, with each tag's commit and release-audit coverage. Synthetic data only."
+    />
+
+    <!--
+      The third of the three mechanisms that keep this page reaching exactly one
+      origin (see src/net.ts). `default-src 'none'` means nothing loads unless a
+      directive below allows it, and `connect-src` names the only host this page
+      may talk to. No analytics, no fonts, no CDN, no error reporter — not
+      because none were added, but because none can be.
+
+      `form-action 'none'` is belt and braces: this repository contains no form
+      element at all, and the build refuses to publish one. (The tag name is not
+      written out anywhere in the built output — that is what the guard checks
+      for, so writing it here would fail the build.)
+
+      `frame-ancestors` is deliberately absent: browsers ignore it in a meta tag,
+      and GitHub Pages does not let us set response headers. Stating it here
+      would look like a control while being none.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src https://api.github.com; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230b3a53'/%3E%3Cpath d='M4 8h8M8 4v8' stroke='%237fd1c1' stroke-width='1.6'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+
+  <body>
+    <!--
+      The honesty frame is written here by tools/build.mjs from the single
+      constant in src/scope.ts. It is static markup on purpose: it is present
+      before any script runs, and it is still present if none ever does.
+    -->
+    <!--HONESTY-FRAME-->
+
+    <main id="view">
+      <noscript>
+        <section class="panel">
+          <h1>Releases</h1>
+          <p>
+            The release list is read live from the GitHub API, which needs
+            JavaScript. The statement above does not, and is the part that
+            matters when the rest of this page has not loaded.
+          </p>
+          <p>
+            The releases themselves are readable without this page at
+            <a href="https://github.com/EchoJustus/clofin-core/releases" rel="noopener noreferrer"
+              >github.com/EchoJustus/clofin-core/releases</a
+            >.
+          </p>
+        </section>
+      </noscript>
+    </main>
+
+    <footer class="foot">
+      <p>
+        <a href="https://github.com/EchoJustus/clofin-cockpit" rel="noopener noreferrer">clofin-cockpit</a>
+        · a client of
+        <a href="https://github.com/EchoJustus/clofin-core" rel="noopener noreferrer">clofin-core</a>
+        · Eclipse Public License 2.0
+      </p>
+      <p>
+        This repository owns no truth, holds no funds and enforces no controls. It is
+        outside <code>clofin-core</code>'s release-audit scope.
+      </p>
+    </footer>
+
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
